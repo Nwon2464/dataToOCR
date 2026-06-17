@@ -1,0 +1,14 @@
+[project]
+name = "jp-accounting-ocr"
+version = "0.1.0"
+description = "Local OCR review tool for Japanese accounting study materials."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "paddleocr",
+    "pymupdf",
+    "streamlit",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

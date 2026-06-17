@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+.pytest_cache/
+
+data/input/*
+data/pages/*
+data/ocr_raw/*
+data/corrected/*
+data/*.db
+data/debug_layout/*
+*.pdf
+
+!data/input/.gitkeep
+!data/pages/.gitkeep
+!data/ocr_raw/.gitkeep
+!data/corrected/.gitkeep
