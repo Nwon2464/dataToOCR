@@ -1,10 +1,10 @@
 # jp-accounting-ocr
 
-Local OCR review tool for Japanese accounting study materials that include English terms.
+Local OCR review tool for scanned Japanese accounting study PDFs.
 
 ## Goal
 
-Create a local-first workflow for importing study PDFs/images, extracting page images, running OCR, reviewing recognized text, and saving corrections for later search and analysis.
+Create a local-first workflow for scanned PDF layout analysis, page/block image extraction, OCR, and human review. The project direction is OpenCV-based page layout analysis, cropped content blocks, block-level OCR, and page-by-page correction.
 
 ## MVP Scope
 
@@ -12,33 +12,40 @@ Create a local-first workflow for importing study PDFs/images, extracting page i
 - PyMuPDF-based PDF to page image rendering.
 - PaddleOCR-only OCR pipeline.
 - Basic review workflow for OCR text correction.
+- Raw OCR and corrected text stored separately.
+- SQLite metadata for documents, pages, review status, layout type, OCR mode, and manual-review flags.
 - Local data storage only.
-- Minimal Python project scaffold for future implementation.
 
 ## Non-Goals For Now
 
 - Production OCR accuracy tuning.
-- Streamlit UI implementation.
 - Cloud storage or hosted deployment.
 - User accounts or authentication.
+- Full-text search indexing.
+- Accounting dictionary or keyword indexing.
 - Tesseract comparison.
-- Full-text search indexing, diffing, risk highlighting, or automatic keyword-to-page mapping.
+- Diff/risk highlighting.
 
 ## Development Phases
 
-1. PaddleOCR-only review UI.
-2. SQLite storage.
-3. Search.
-4. Tesseract comparison.
-5. Diff and risk highlighting.
-6. Accounting dictionary.
-7. Chapter and keyword indexing.
+1. PDF upload and page extraction.
+2. SQLite document/page/review metadata.
+3. PaddleOCR raw text generation.
+4. Page-by-page review UI with corrected text save.
+5. OpenCV page layout analysis.
+6. Layout JSON export.
+7. Block crop generation.
+8. Block-level OCR and review workflow.
 
-## Current Step
+## Current Focus
 
-This step makes batch OCR more OOM-resilient. The app can run OCR over pages missing raw OCR, all pages, or a selected page range. Existing raw OCR is skipped by default and overwritten only when the user enables the overwrite option. Batch OCR runs each page in an isolated worker subprocess, uses lightweight PaddleOCR mode by default, and defaults to 1 page per batch.
+- OpenCV page layout analysis for scanned PDFs.
+- Layout JSON that records detected blocks and page structure.
+- Block crop output for text/table/diagram/question regions.
+- Block OCR that can run after crop generation.
+- Review UI that keeps raw OCR separate from corrected text and tracks page review state.
 
-The previous step added a textbook Index keyword dictionary foundation. Index terms and section-style references can be parsed into SQLite keyword tables, while full corrected-text search remains separate. Textbook Index refs are stored as section refs, not PDF page numbers. FTS5 indexing, automatic section-to-page mapping, automatic layout detection, build/run steps, and package installation are not part of this step.
+This cleanup removes corrected-text search UI and keyword dictionary storage so the codebase can shift toward layout analysis, block crops, and OCR review workflow.
 
 ## App Entrypoint
 
@@ -52,11 +59,7 @@ Each extracted page can also be classified with review status, layout type, OCR 
 
 The app shows review progress counts and can jump to the next page needing review. Pages marked `checked` are skipped by next-review navigation.
 
-The app can search corrected text files for the current document. Each result can jump Page Review to the matching page. Raw OCR text is not searched by default.
-
 The app can run batch OCR for the current document. Batch OCR is sequential and local, runs PaddleOCR in one-page worker subprocesses, shows progress, collects per-page failures, and does not save or overwrite corrected text. Worker OCR uses lightweight mode by default to disable extra orientation/unwarping models when supported. For low-memory machines or large PDFs, run one page at a time or use small ranges.
-
-The backend can parse simple textbook Index lines such as `Strict liability 1-3, 3-9, 3-12` into keyword dictionary entries. Index refs are stored as textbook section references and are not treated as PDF page numbers yet. Automatic page mapping and keyword-assisted FTS5 search/ranking are future work.
 
 ## OCR Status
 
@@ -66,7 +69,7 @@ Corrected text is saved separately under `data/corrected/` and does not overwrit
 
 ## SQLite Metadata
 
-`data/app.db` is created when database initialization is called. SQLite stores document/page metadata, review status, layout type, OCR mode, manual-review flags, and keyword dictionary metadata. Raw OCR and corrected text contents remain in files under `data/ocr_raw/` and `data/corrected/`.
+`data/app.db` is created when database initialization is called. SQLite stores document/page metadata, review status, layout type, OCR mode, and manual-review flags. Raw OCR and corrected text contents remain in files under `data/ocr_raw/` and `data/corrected/`.
 
 Uploading and extracting pages through the Streamlit app now creates or updates `data/app.db` metadata for the document and extracted pages.
 
@@ -83,3 +86,11 @@ python scripts/manual_check_extract.py data/input/sample_real_textbook_3pages.pd
 Expected result: page images are created under `data/pages/{document_id}/`, and the script prints the generated `document_id`, page count, and saved image paths.
 
 This only verifies PDF to image extraction. It does not perform OCR yet.
+
+## Future / Backlog
+
+- Persistent OCR job logs, failed page tracking, retry failed pages, and resume workflow.
+- Tesseract comparison.
+- Diff and risk highlighting.
+- Accounting dictionary.
+- Chapter/keyword indexing.

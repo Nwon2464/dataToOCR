@@ -24,8 +24,6 @@ LAYOUT_TYPE_MIXED = "mixed"
 LAYOUT_TYPE_QUESTION = "question"
 
 OCR_MODE_AUTO = "auto"
-OCR_MODE_ORIGINAL_ORDER = "original_order"
-OCR_MODE_SIDEBAR_SPLIT = "sidebar_split"
 OCR_MODE_MANUAL = "manual"
 
 
@@ -52,23 +50,3 @@ class Page:
     layout_type: str = LAYOUT_TYPE_UNKNOWN
     ocr_mode: str = OCR_MODE_AUTO
     needs_manual_review: bool = False
-
-
-@dataclass
-class Keyword:
-    id: str
-    document_id: str
-    keyword: str
-    normalized_keyword: str
-    language: str = "unknown"
-    source: str = "textbook_index"
-    note: str = ""
-
-
-@dataclass
-class KeywordRef:
-    id: str
-    keyword_id: str
-    ref_text: str
-    section_code: str = ""
-    target_page_number: int | None = None

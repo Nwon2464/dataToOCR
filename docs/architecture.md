@@ -5,8 +5,8 @@
 `app/streamlit_app.py` will be the local Streamlit entrypoint. It should stay thin and delegate behavior to package modules under `src/ocr_tool/`.
 
 The current Streamlit shell handles PDF upload, page extraction, OCR review,
-corrected-text search, and batch OCR controls. It calls storage helpers to save
-uploaded PDFs and pipeline helpers to extract page images. OCR parser logic
+and batch OCR controls. It calls storage helpers to save uploaded PDFs and
+pipeline helpers to extract page images. OCR parser and layout analysis logic
 should not live directly in the Streamlit entrypoint.
 
 The UI can trigger OCR for one selected extracted page. It shows the selected original page image and raw OCR text side by side. It calls the OCR pipeline and displays raw OCR text, but does not parse OCR results directly.
@@ -25,7 +25,10 @@ the installed PaddleOCR version, this disables document orientation
 classification, document unwarping, and textline orientation classification so
 the worker does not load those extra preprocessing models.
 
-The UI writes corrected text through storage helpers. Corrected text is human-reviewed output, stays separate from raw OCR, and should be treated as trusted text for future search. Saving corrected text can optionally update review status to `reviewing` or `checked`; choosing `checked` also clears the manual-review flag.
+The UI writes corrected text through storage helpers. Corrected text is
+human-reviewed output and stays separate from raw OCR. Saving corrected text can
+optionally update review status to `reviewing` or `checked`; choosing `checked`
+also clears the manual-review flag.
 
 The Streamlit entrypoint initializes SQLite on startup and writes document/page
 metadata after upload and extraction. It does not keep a global SQLite
@@ -42,27 +45,16 @@ layout counts. The next-review control chooses the next page whose review status
 is `needs_review`, `unchecked`, or `reviewing`; pages marked `checked` are
 skipped.
 
-The first search layer is file-based and searches corrected text files for the
-current document. It uses SQLite page metadata to find pages, then reads
-`data/corrected/{document_id}/page_XXXX.txt`. Raw OCR is not searched by
-default because raw OCR is draft engine output; corrected text is the trusted
-source. Search results can update the Page Review selected page so the matching
-page opens for review.
-
-The keyword dictionary layer is separate from full corrected-text search. It
-stores curated terms parsed from textbook Index pages in SQLite `keywords` and
-`keyword_refs` tables. Index references such as `1-3` or `9-20` are preserved as
-textbook section references; they are not assumed to be PDF page numbers and are
-not automatically mapped to Page Review pages yet. SQLite FTS5 indexing,
-keyword-assisted ranking, and section-to-page mapping are future work.
-
 ## Pipeline Layer
 
 `src/ocr_tool/pipeline/` will own document processing steps:
 
 - Extract PDF pages into local image files using PyMuPDF.
+- Analyze scanned page layout with OpenCV.
+- Write layout JSON for detected blocks and page structure.
+- Crop detected blocks into local image assets.
 - Preprocess page images before OCR.
-- Run OCR engines and return raw OCR output.
+- Run OCR engines on pages or blocks and return raw OCR output.
 
 ## Storage Layer
 
@@ -71,9 +63,9 @@ keyword-assisted ranking, and section-to-page mapping are future work.
 - File storage for uploaded documents, page images, raw OCR output, and corrected text.
 - SQLite setup and access helpers when database-backed state is introduced.
 
-SQLite currently stores document/page metadata and keyword dictionary metadata.
-Text contents still live in raw and corrected text files. Corrected text remains
-the trusted full-search source, while raw OCR remains draft engine output.
+SQLite currently stores document/page metadata and review/layout metadata. Text
+contents still live in raw and corrected text files. Raw OCR remains draft
+engine output; corrected text remains human-reviewed output.
 
 ## UI Review Layer
 
@@ -91,11 +83,15 @@ Path builder helpers return paths only and do not create directories. `ensure_da
 
 ## Data Lifecycle
 
-PDF and image inputs are stored under `data/input/` using local stored filenames. PDF pages are later extracted into page images under `data/pages/`. OCR output is saved as raw text under `data/ocr_raw/`. Human-reviewed text is saved separately under `data/corrected/`. SQLite metadata lives at `data/app.db`; future FTS5 indexes can live there too.
+PDF and image inputs are stored under `data/input/` using local stored filenames. PDF pages are later extracted into page images under `data/pages/`. OCR output is saved as raw text under `data/ocr_raw/`. Human-reviewed text is saved separately under `data/corrected/`. SQLite metadata lives at `data/app.db`.
 
 Uploaded files are saved as binary files under `data/input/`. Upload saving returns a `Document` dataclass, and the app can persist document/page metadata in SQLite after upload and extraction.
 
-Raw OCR text should not be overwritten by corrected text. Raw output is the engine result and remains useful for comparison, debugging, and future OCR quality checks. Corrected text is the human-approved version used for review completion, search, and later analysis. Page status tracks review progress, starting as unchecked and moving through review states as a user verifies each page.
+Raw OCR text should not be overwritten by corrected text. Raw output is the
+engine result and remains useful for debugging and future OCR quality checks.
+Corrected text is the human-approved version used for review completion and
+later analysis. Page status tracks review progress, starting as unchecked and
+moving through review states as a user verifies each page.
 
 ## Page Output Storage
 
@@ -132,22 +128,17 @@ The PaddleOCR result parser is defensive because result shapes can vary by versi
 
 `data/app.db` stores metadata for imported documents and extracted pages. The
 database tracks file paths, page review status, layout type, OCR mode, and
-manual-review flags. It also stores keyword dictionary terms and Index section
-references. It does not store raw OCR text or corrected text content.
+manual-review flags. It does not store raw OCR text or corrected text content.
 
 When PDFs are uploaded through the app, document metadata is inserted or
 updated. When pages are extracted, page metadata is inserted or updated. File
 storage remains the source for uploaded PDFs, page images, raw OCR text, and
-corrected text files. SQLite enables later review workflow state and search
-indexing.
+corrected text files. SQLite enables review workflow state and later
+layout/block metadata.
 
 Review progress helpers aggregate page metadata and find the next page to
 inspect. They do not read OCR or corrected text file contents and do not change
-search/indexing behavior.
-
-Keyword helpers normalize keywords by trimming, lowercasing, and collapsing
-whitespace. Keyword refs keep original `ref_text`, a `section_code`, and an
-optional nullable `target_page_number` for future section-to-page mapping.
+layout/OCR behavior.
 
 `layout_type` exists because pages may contain normal text, right sidebar notes,
 tables, diagrams, mixed layouts, or questions. A future `page_assets` table can
@@ -159,5 +150,4 @@ tables, diagrams, mixed pages, or question pages. It is workflow metadata only
 and does not change OCR or file storage behavior.
 
 Corrected text save remains separate from raw OCR save. If a page is marked
-`checked`, it is considered ready for future search/indexing over corrected
-text.
+`checked`, it is considered reviewed for downstream layout/OCR workflow.

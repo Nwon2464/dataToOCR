@@ -13,7 +13,7 @@ from ocr_tool.models import (
     LAYOUT_TYPE_TEXT,
     LAYOUT_TYPE_UNKNOWN,
     OCR_MODE_AUTO,
-    OCR_MODE_SIDEBAR_SPLIT,
+    OCR_MODE_MANUAL,
     PAGE_STATUS_UNCHECKED,
     REVIEW_STATUS_CHECKED,
     REVIEW_STATUS_NEEDS_REVIEW,
@@ -191,13 +191,13 @@ def test_update_page_review_metadata_can_update_layout_and_ocr_mode(tmp_path):
         "doc123",
         1,
         layout_type=LAYOUT_TYPE_TABLE,
-        ocr_mode=OCR_MODE_SIDEBAR_SPLIT,
+        ocr_mode=OCR_MODE_MANUAL,
         database_path=database_path,
     )
 
     page = list_pages("doc123", database_path)[0]
     assert page.layout_type == LAYOUT_TYPE_TABLE
-    assert page.ocr_mode == OCR_MODE_SIDEBAR_SPLIT
+    assert page.ocr_mode == OCR_MODE_MANUAL
     assert page.review_status == REVIEW_STATUS_UNCHECKED
     assert page.needs_manual_review is False
 

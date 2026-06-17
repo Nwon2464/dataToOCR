@@ -11,7 +11,6 @@ sys.path.insert(0, str(SRC_DIR))
 
 from ocr_tool.pipeline.extract_pages import extract_pages_from_pdf
 from ocr_tool.pipeline.run_ocr import run_paddle_ocr
-from ocr_tool.search import search_corrected_text
 from ocr_tool.batch_ocr import (
     BATCH_OCR_MODE_RANGE,
     BATCH_OCR_MODES,
@@ -33,8 +32,6 @@ from ocr_tool.models import (
     LAYOUT_TYPE_UNKNOWN,
     OCR_MODE_AUTO,
     OCR_MODE_MANUAL,
-    OCR_MODE_ORIGINAL_ORDER,
-    OCR_MODE_SIDEBAR_SPLIT,
     REVIEW_STATUS_CHECKED,
     REVIEW_STATUS_NEEDS_REVIEW,
     REVIEW_STATUS_REVIEWING,
@@ -80,8 +77,6 @@ LAYOUT_TYPE_OPTIONS = [
 ]
 OCR_MODE_OPTIONS = [
     OCR_MODE_AUTO,
-    OCR_MODE_ORIGINAL_ORDER,
-    OCR_MODE_SIDEBAR_SPLIT,
     OCR_MODE_MANUAL,
 ]
 POST_CORRECTED_SAVE_KEEP = "keep current review status"
@@ -93,10 +88,6 @@ POST_CORRECTED_SAVE_OPTIONS = [
     POST_CORRECTED_SAVE_CHECKED,
 ]
 SELECTED_PAGE_NUMBER_KEY = "selected_page_number"
-SEARCH_QUERY_KEY = "search_query"
-SEARCH_RESULTS_KEY = "search_results"
-SEARCH_PERFORMED_KEY = "search_performed"
-LAST_SEARCH_DOCUMENT_ID_KEY = "last_search_document_id"
 
 
 def main() -> None:
@@ -180,8 +171,9 @@ def main() -> None:
 
     st.subheader("Extracted pages")
     st.write(f"pages_extracted: {len(pages)}")
-    for page in pages:
-        st.write(f"page {page.page_number}: {page.image_path}")
+    with st.expander("Extracted page image paths"):
+        for page in pages:
+            st.write(f"page {page.page_number}: {page.image_path}")
     if st.session_state.get("page_metadata_saved"):
         st.caption("Page metadata saved")
 
@@ -336,46 +328,6 @@ def main() -> None:
             st.write("Failures")
             for failure in failures:
                 st.error(f"Page {failure.page_number}: {failure.error}")
-
-    st.subheader("Search corrected text")
-    if st.session_state.get(LAST_SEARCH_DOCUMENT_ID_KEY) != document.id:
-        st.session_state[SEARCH_QUERY_KEY] = ""
-        st.session_state[SEARCH_RESULTS_KEY] = []
-        st.session_state[SEARCH_PERFORMED_KEY] = False
-        st.session_state[LAST_SEARCH_DOCUMENT_ID_KEY] = document.id
-
-    search_query = st.text_input("Search query", key=SEARCH_QUERY_KEY)
-    if st.button("Search corrected text"):
-        try:
-            st.session_state[SEARCH_RESULTS_KEY] = search_corrected_text(
-                document.id,
-                search_query,
-            )
-        except Exception as error:
-            st.error(f"Corrected text search failed: {error}")
-            return
-        st.session_state[SEARCH_PERFORMED_KEY] = True
-
-    search_results = st.session_state.get(SEARCH_RESULTS_KEY, [])
-    if search_results:
-        for index, result in enumerate(search_results):
-            st.write(
-                f"Page {result['page_number']} "
-                f"({result['review_status']}, {result['layout_type']}, "
-                f"manual_review={result['needs_manual_review']})"
-            )
-            st.caption(str(result["snippet"]))
-            if st.button(
-                f"Go to page {result['page_number']}",
-                key=(
-                    "search_go_to_page_"
-                    f"{document.id}_{result['page_number']}_{index}"
-                ),
-            ):
-                st.session_state[SELECTED_PAGE_NUMBER_KEY] = result["page_number"]
-                st.rerun()
-    elif st.session_state.get(SEARCH_PERFORMED_KEY):
-        st.info("No matches found in corrected text.")
 
     st.subheader("Page Review")
     if (
