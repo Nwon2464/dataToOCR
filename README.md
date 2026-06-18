@@ -1,96 +1,78 @@
-# jp-accounting-ocr
+# dataocr MinerU Runner
 
-Local OCR review tool for scanned Japanese accounting study PDFs.
+This repository is a small local wrapper around the open-source MinerU CLI.
 
-## Goal
+Put input files in:
 
-Create a local-first workflow for scanned PDF layout analysis, page/block image extraction, OCR, and human review. The project direction is OpenCV-based page layout analysis, cropped content blocks, block-level OCR, and page-by-page correction.
-
-## MVP Scope
-
-- Local file-based source material handling.
-- PyMuPDF-based PDF to page image rendering.
-- PaddleOCR-only OCR pipeline.
-- Basic review workflow for OCR text correction.
-- Raw OCR and corrected text stored separately.
-- SQLite metadata for documents, pages, review status, layout type, OCR mode, and manual-review flags.
-- Local data storage only.
-
-## Non-Goals For Now
-
-- Production OCR accuracy tuning.
-- Cloud storage or hosted deployment.
-- User accounts or authentication.
-- Full-text search indexing.
-- Accounting dictionary or keyword indexing.
-- Tesseract comparison.
-- Diff/risk highlighting.
-
-## Development Phases
-
-1. PDF upload and page extraction.
-2. SQLite document/page/review metadata.
-3. PaddleOCR raw text generation.
-4. Page-by-page review UI with corrected text save.
-5. OpenCV page layout analysis.
-6. Layout JSON export.
-7. Block crop generation.
-8. Block-level OCR and review workflow.
-
-## Current Focus
-
-- OpenCV page layout analysis for scanned PDFs.
-- Layout JSON that records detected blocks and page structure.
-- Block crop output for text/table/diagram/question regions.
-- Block OCR that can run after crop generation.
-- Review UI that keeps raw OCR separate from corrected text and tracks page review state.
-
-This cleanup removes corrected-text search UI and keyword dictionary storage so the codebase can shift toward layout analysis, block crops, and OCR review workflow.
-
-## App Entrypoint
-
-`app/streamlit_app.py` is the MVP UI entrypoint. It currently uploads a PDF, saves it under `data/input/`, triggers PDF page extraction, provides a side-by-side selected page image plus raw OCR view, and can run sequential batch OCR for current document pages.
-
-It also supports editing and saving corrected text for one selected page. Full-document correction is not implemented yet.
-
-After saving corrected text, the user can keep the current review status, mark the page as reviewing, or mark it as checked. Marking checked clears the manual-review flag.
-
-Each extracted page can also be classified with review status, layout type, OCR mode, and a manual-review flag. Layout classification is manual for now.
-
-The app shows review progress counts and can jump to the next page needing review. Pages marked `checked` are skipped by next-review navigation.
-
-The app can run batch OCR for the current document. Batch OCR is sequential and local, runs PaddleOCR in one-page worker subprocesses, shows progress, collects per-page failures, and does not save or overwrite corrected text. Worker OCR uses lightweight mode by default to disable extra orientation/unwarping models when supported. For low-memory machines or large PDFs, run one page at a time or use small ranges.
-
-## OCR Status
-
-PaddleOCR is used for local OCR in `src/ocr_tool/pipeline/run_ocr.py`. The default language is Japanese: `lang="japan"`. Single-page OCR runs in the app process for now; batch OCR runs one page image at a time in isolated worker subprocesses. Raw text is written only under `data/ocr_raw/`.
-
-Corrected text is saved separately under `data/corrected/` and does not overwrite raw OCR text.
-
-## SQLite Metadata
-
-`data/app.db` is created when database initialization is called. SQLite stores document/page metadata, review status, layout type, OCR mode, and manual-review flags. Raw OCR and corrected text contents remain in files under `data/ocr_raw/` and `data/corrected/`.
-
-Uploading and extracting pages through the Streamlit app now creates or updates `data/app.db` metadata for the document and extracted pages.
-
-The app can update page review metadata in `data/app.db`; text contents still remain in files.
-
-## Manual PDF Extraction Check
-
-Place a real sample PDF under `data/input/`, then run:
-
-```bash
-python scripts/manual_check_extract.py data/input/sample_real_textbook_3pages.pdf
+```text
+data/samples/
 ```
 
-Expected result: page images are created under `data/pages/{document_id}/`, and the script prints the generated `document_id`, page count, and saved image paths.
+Supported inputs for this wrapper:
 
-This only verifies PDF to image extraction. It does not perform OCR yet.
+```text
+.pdf .png .jpg .jpeg .webp .bmp .tif .tiff
+```
 
-## Future / Backlog
+Outputs are written to:
 
-- Persistent OCR job logs, failed page tracking, retry failed pages, and resume workflow.
-- Tesseract comparison.
-- Diff and risk highlighting.
-- Accounting dictionary.
-- Chapter/keyword indexing.
+```text
+data/mineru_output/<input-file-stem>/
+```
+
+## Install
+
+MinerU currently supports Python 3.10-3.13. For the simplest local setup:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install uv
+uv pip install -r requirements-mineru.txt
+```
+
+The first run can take a long time because MinerU may download model files.
+
+## Run
+
+One-command batch:
+
+```bash
+python scripts/run_batch.py
+```
+
+The batch command scans `data/samples/`, skips files that already have
+`data/mineru_output/<input-file-stem>/auto/`, runs MinerU for missing outputs, and writes a
+manifest to `data/manifests/`.
+
+CPU-compatible default:
+
+```bash
+python scripts/run_mineru.py
+```
+
+Run one file:
+
+```bash
+python scripts/run_mineru.py --input "data/samples/example.pdf"
+```
+
+Use a different backend:
+
+```bash
+python scripts/run_mineru.py --backend pipeline
+python scripts/run_mineru.py --backend auto
+```
+
+`pipeline` is the conservative CPU-friendly backend. `auto` omits `-b` and lets MinerU pick the backend.
+
+## Notes
+
+The wrapper shells out to the official MinerU CLI:
+
+```bash
+mineru -p <input_path> -o <output_path> -b pipeline
+```
+
+If `mineru` is not found, activate the virtual environment or install the dependencies above.

@@ -1,3 +1,0 @@
-paddleocr
-pymupdf
-streamlit

@@ -1,16 +1,16 @@
 .venv/
+.cache/
 __pycache__/
-.pytest_cache/
+*.py[cod]
 
-data/input/*
-data/pages/*
-data/ocr_raw/*
-data/corrected/*
-data/*.db
-data/debug_layout/*
-*.pdf
+data/mineru_output/*
+!data/mineru_output/.gitkeep
 
-!data/input/.gitkeep
-!data/pages/.gitkeep
-!data/ocr_raw/.gitkeep
-!data/corrected/.gitkeep
+data/manifests/*
+!data/manifests/.gitkeep
+
+data/processed/*
+!data/processed/.gitkeep
+
+data/reports/*
+!data/reports/.gitkeep
