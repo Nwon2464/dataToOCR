@@ -50,6 +50,7 @@ function contentTypeFor(filePath) {
   if (ext === ".webp") return "image/webp";
   if (ext === ".svg") return "image/svg+xml";
   if (ext === ".json") return "application/json; charset=utf-8";
+  if (ext === ".html" || ext === ".htm") return "text/html; charset=utf-8";
   if (ext === ".md") return "text/markdown; charset=utf-8";
   return "application/octet-stream";
 }
