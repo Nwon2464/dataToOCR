@@ -88,7 +88,7 @@ function App() {
 
   return (
     mode === "html" && manifest ? (
-      <MineruHtmlDocument manifest={manifest} />
+      <MineruHtmlDocument manifest={manifest} chunkId={chunkId} />
     ) : renderJson ? (
       <JsonRenderDocument renderJson={renderJson} chunkId={chunkId} />
     ) : (
