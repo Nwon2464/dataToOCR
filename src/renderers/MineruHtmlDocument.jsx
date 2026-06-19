@@ -83,6 +83,29 @@ function initialLoadedIndexes(index, length) {
   return indexes;
 }
 
+function getCurrentVisibleChunkIndex(sectionRefs, anchorY, fallbackIndex) {
+  let lastIndexAboveMarker = null;
+  let firstIndexBelowMarker = null;
+  let readySectionCount = 0;
+
+  sectionRefs.current.forEach((section, index) => {
+    if (!section) return;
+    readySectionCount += 1;
+    const rect = section.getBoundingClientRect();
+
+    if (rect.top <= anchorY && rect.bottom > anchorY) {
+      lastIndexAboveMarker = index;
+      return;
+    }
+
+    if (rect.top <= anchorY) lastIndexAboveMarker = index;
+    else if (firstIndexBelowMarker == null) firstIndexBelowMarker = index;
+  });
+
+  if (readySectionCount === 0) return null;
+  return lastIndexAboveMarker ?? firstIndexBelowMarker ?? fallbackIndex;
+}
+
 function NavigationDrawer({ documentName, chunks, currentIndex, open, onClose, onSelectChunk }) {
   const navRef = useRef(null);
 
@@ -166,6 +189,7 @@ function DrawerOpenButton({ onClick }) {
 }
 
 function RenderToolbar({
+  toolbarRef,
   documentId,
   currentChunk,
   currentIndex,
@@ -184,7 +208,7 @@ function RenderToolbar({
   onFocusToggle,
 }) {
   return (
-    <header className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50/95 backdrop-blur">
+    <header ref={toolbarRef} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50/95 backdrop-blur">
       <div className="flex min-h-12 flex-wrap items-center gap-1.5 px-3 py-1.5 sm:gap-2 lg:px-4">
         <div className="w-[calc(100%-72px)] min-w-0 flex-none py-0.5 sm:w-auto sm:flex-1">
           <div className="truncate text-sm font-semibold text-slate-900">{documentId}</div>
@@ -423,11 +447,17 @@ export default function MineruHtmlDocument({ manifest, chunkId }) {
   );
   const [prefetchedIndexes, setPrefetchedIndexes] = useState(() => new Set());
   const sectionRefs = useRef([]);
-  const visibilityRef = useRef(new Map());
+  const toolbarRef = useRef(null);
+  const trackVisibleChunkRef = useRef(null);
   const currentIndexRef = useRef(initialIndex);
   const navigationTargetRef = useRef(null);
   const navigationTimeoutRef = useRef(null);
   const restoredScrollRef = useRef(false);
+  const lastScrollYRef = useRef(0);
+  const lastCommittedScrollYRef = useRef(null);
+  const scrollDirectionRef = useRef(0);
+  const scrollDirectionTimeoutRef = useRef(null);
+  const lastTouchYRef = useRef(null);
 
   const currentChunk = chunks[currentIndex] || chunks[0] || null;
   const nextChunk = chunks[currentIndex + 1] || null;
@@ -481,7 +511,8 @@ export default function MineruHtmlDocument({ manifest, chunkId }) {
       if (navigationTimeoutRef.current) clearTimeout(navigationTimeoutRef.current);
       navigationTimeoutRef.current = setTimeout(() => {
         navigationTargetRef.current = null;
-      }, 1500);
+        trackVisibleChunkRef.current?.();
+      }, 2000);
       scrollToChunkSection(index, options.behavior || "smooth");
     }
     return true;
@@ -511,12 +542,24 @@ export default function MineruHtmlDocument({ manifest, chunkId }) {
     currentIndexRef.current = restoredIndex;
     navigationTargetRef.current = null;
     restoredScrollRef.current = false;
+    lastScrollYRef.current = window.scrollY;
+    lastCommittedScrollYRef.current = null;
+    scrollDirectionRef.current = 0;
     setCurrentIndex(restoredIndex);
     setViewerMode(initialPosition.viewMode);
     setLoadedIndexes(new Set(initialLoadedIndexes(restoredIndex, chunks.length)));
     setPrefetchedIndexes(new Set());
     setPageJump("");
     setJumpError("");
+    if (import.meta.env.DEV) {
+      console.info("[reader-track]", {
+        reason: "mount-position",
+        restored: initialPosition.restored,
+        currentIndex: restoredIndex,
+        viewerMode: initialPosition.viewMode,
+        scrollY: window.scrollY,
+      });
+    }
   }, [chunks, initialPosition]);
 
   useEffect(() => {
@@ -540,7 +583,19 @@ export default function MineruHtmlDocument({ manifest, chunkId }) {
     if (!initialPosition.restored || restoredScrollRef.current || viewerMode !== "continuous") return;
     restoredScrollRef.current = true;
     navigationTargetRef.current = currentIndexRef.current;
-    scrollToChunkSection(currentIndexRef.current, "auto");
+    if (navigationTimeoutRef.current) clearTimeout(navigationTimeoutRef.current);
+    navigationTimeoutRef.current = setTimeout(() => {
+      navigationTargetRef.current = null;
+      trackVisibleChunkRef.current?.();
+    }, 2000);
+    if (import.meta.env.DEV) {
+      console.info("[reader-track]", {
+        reason: "restore-scroll",
+        targetIndex: currentIndexRef.current,
+        scrollY: window.scrollY,
+      });
+    }
+    scrollToChunkSection(currentIndexRef.current, "instant");
   }, [initialPosition.restored, scrollToChunkSection, viewerMode]);
 
   useEffect(() => {
@@ -564,44 +619,171 @@ export default function MineruHtmlDocument({ manifest, chunkId }) {
       { rootMargin: "1000px 0px" },
     );
 
-    const visibleObserver = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          visibilityRef.current.set(Number(entry.target.dataset.chunkIndex), entry.intersectionRatio);
-        });
-        let visibleIndex = currentIndexRef.current;
-        let visibleRatio = 0;
-        visibilityRef.current.forEach((ratio, index) => {
-          if (ratio > visibleRatio) {
-            visibleIndex = index;
-            visibleRatio = ratio;
-          }
-        });
-        const navigationTarget = navigationTargetRef.current;
-        if (navigationTarget != null) {
-          const targetRatio = visibilityRef.current.get(navigationTarget) || 0;
-          if (targetRatio >= 0.1) {
-            navigationTargetRef.current = null;
-            if (navigationTimeoutRef.current) clearTimeout(navigationTimeoutRef.current);
-            setTrackedCurrentIndex(navigationTarget);
-          }
-          return;
+    let trackingFrame = null;
+    const rememberScrollDirection = (direction) => {
+      if (!direction) return;
+      scrollDirectionRef.current = direction;
+      if (scrollDirectionTimeoutRef.current) clearTimeout(scrollDirectionTimeoutRef.current);
+      scrollDirectionTimeoutRef.current = setTimeout(() => {
+        scrollDirectionRef.current = 0;
+      }, 240);
+    };
+
+    const trackCurrentChunk = () => {
+      trackingFrame = null;
+      const toolbarBottom = toolbarRef.current?.getBoundingClientRect().bottom || 0;
+      const anchorY = Math.min(window.innerHeight - 1, Math.max(0, toolbarBottom + 8));
+      const visibleIndex = getCurrentVisibleChunkIndex(
+        sectionRefs,
+        anchorY,
+        currentIndexRef.current,
+      );
+      if (visibleIndex == null) return;
+
+      const navigationTarget = navigationTargetRef.current;
+      if (navigationTarget != null) {
+        if (visibleIndex !== navigationTarget) return;
+        navigationTargetRef.current = null;
+        if (navigationTimeoutRef.current) clearTimeout(navigationTimeoutRef.current);
+        lastCommittedScrollYRef.current = window.scrollY;
+        if (import.meta.env.DEV) {
+          console.info("[reader-track]", {
+            reason: "navigation-target-reached",
+            previousIndex: currentIndexRef.current,
+            nextIndex: visibleIndex,
+            scrollY: window.scrollY,
+          });
         }
-        if (visibleRatio > 0) setTrackedCurrentIndex(visibleIndex);
-      },
-      { threshold: [0, 0.1, 0.25, 0.5, 0.75] },
-    );
+      }
+
+      const previousIndex = currentIndexRef.current;
+      if (visibleIndex === previousIndex) {
+        if (lastCommittedScrollYRef.current == null) lastCommittedScrollYRef.current = window.scrollY;
+        return;
+      }
+
+      const direction = scrollDirectionRef.current;
+      const committedScrollY = lastCommittedScrollYRef.current ?? window.scrollY;
+      const movingBackward = visibleIndex < previousIndex;
+      const contradictsDirection =
+        (direction > 0 && movingBackward) ||
+        (direction < 0 && !movingBackward);
+      const contradictsPosition =
+        direction === 0 && (
+          (movingBackward && window.scrollY >= committedScrollY - 1) ||
+          (!movingBackward && window.scrollY <= committedScrollY + 1)
+        );
+
+      if (contradictsDirection || contradictsPosition) {
+        if (import.meta.env.DEV) {
+          console.info("[reader-track]", {
+            reason: "direction-guard",
+            previousIndex,
+            nextIndex: visibleIndex,
+            direction,
+            scrollY: window.scrollY,
+            committedScrollY,
+          });
+        }
+        return;
+      }
+
+      lastCommittedScrollYRef.current = window.scrollY;
+      if (import.meta.env.DEV) {
+        console.info("[reader-track]", {
+          reason: "scroll-marker",
+          previousIndex,
+          nextIndex: visibleIndex,
+          direction,
+          scrollY: window.scrollY,
+        });
+      }
+      setTrackedCurrentIndex(visibleIndex);
+    };
+
+    const scheduleTracking = () => {
+      if (trackingFrame != null) return;
+      trackingFrame = requestAnimationFrame(trackCurrentChunk);
+    };
+
+    const cancelProgrammaticNavigation = (reason) => {
+      if (navigationTargetRef.current == null) return;
+      const cancelledTarget = navigationTargetRef.current;
+      navigationTargetRef.current = null;
+      if (navigationTimeoutRef.current) clearTimeout(navigationTimeoutRef.current);
+      if (import.meta.env.DEV) {
+        console.info("[reader-track]", {
+          reason,
+          cancelledTarget,
+          currentIndex: currentIndexRef.current,
+          scrollY: window.scrollY,
+        });
+      }
+      scheduleTracking();
+    };
+
+    const onScroll = () => {
+      const scrollY = window.scrollY;
+      const delta = scrollY - lastScrollYRef.current;
+      if (Math.abs(delta) > 1) {
+        const nextDirection = delta > 0 ? 1 : -1;
+        if (scrollDirectionRef.current === 0 || scrollDirectionRef.current === nextDirection) {
+          rememberScrollDirection(nextDirection);
+        }
+      }
+      lastScrollYRef.current = scrollY;
+      scheduleTracking();
+    };
+
+    const onWheel = (event) => {
+      if (Math.abs(event.deltaY) > 0) rememberScrollDirection(event.deltaY > 0 ? 1 : -1);
+      cancelProgrammaticNavigation("wheel-cancel-navigation");
+    };
+
+    const onTouchStart = (event) => {
+      lastTouchYRef.current = event.touches[0]?.clientY ?? null;
+      cancelProgrammaticNavigation("touch-cancel-navigation");
+    };
+
+    const onTouchMove = (event) => {
+      const touchY = event.touches[0]?.clientY;
+      const previousTouchY = lastTouchYRef.current;
+      if (touchY != null && previousTouchY != null && Math.abs(touchY - previousTouchY) > 1) {
+        rememberScrollDirection(touchY < previousTouchY ? 1 : -1);
+      }
+      lastTouchYRef.current = touchY ?? null;
+    };
+
+    const onTouchEnd = () => {
+      lastTouchYRef.current = null;
+    };
+
+    trackVisibleChunkRef.current = scheduleTracking;
+    lastScrollYRef.current = window.scrollY;
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", scheduleTracking);
+    window.addEventListener("wheel", onWheel, { passive: true });
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("touchend", onTouchEnd, { passive: true });
+    scheduleTracking();
 
     sectionRefs.current.forEach((section) => {
       if (section) {
         loadObserver.observe(section);
-        visibleObserver.observe(section);
       }
     });
     return () => {
       loadObserver.disconnect();
-      visibleObserver.disconnect();
-      visibilityRef.current.clear();
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", scheduleTracking);
+      window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
+      if (trackingFrame != null) cancelAnimationFrame(trackingFrame);
+      if (scrollDirectionTimeoutRef.current) clearTimeout(scrollDirectionTimeoutRef.current);
+      if (trackVisibleChunkRef.current === scheduleTracking) trackVisibleChunkRef.current = null;
     };
   }, [chunks.length, setTrackedCurrentIndex, viewerMode]);
 
@@ -674,7 +856,7 @@ export default function MineruHtmlDocument({ manifest, chunkId }) {
 
   function changeMode(mode) {
     setViewerMode(mode);
-    navigateToChunk(currentIndexRef.current, { mode, behavior: "auto" });
+    navigateToChunk(currentIndexRef.current, { mode, behavior: "instant" });
   }
 
   if (!chunks.length) return <main className="min-h-screen bg-slate-100 p-8 text-slate-600">No HTML chunks found.</main>;
@@ -692,6 +874,7 @@ export default function MineruHtmlDocument({ manifest, chunkId }) {
       />
       <main className="min-w-0 bg-white">
         <RenderToolbar
+          toolbarRef={toolbarRef}
           documentId={documentId}
           currentChunk={currentChunk}
           currentIndex={currentIndex}

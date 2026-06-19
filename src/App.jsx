@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import LibraryView from "./components/LibraryView";
+import { groupChunksByDocument } from "./lib/documents";
 import JsonRenderDocument from "./renderers/JsonRenderDocument";
 import MineruHtmlDocument from "./renderers/MineruHtmlDocument";
 
@@ -14,6 +16,28 @@ function App() {
   const [renderJson, setRenderJson] = useState(null);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
+  const [view, setView] = useState("library");
+  const [selectedDocumentId, setSelectedDocumentId] = useState(null);
+
+  const documents = useMemo(() => {
+    return groupChunksByDocument(manifest?.chunks || []);
+  }, [manifest]);
+
+  const selectedDocument = useMemo(() => {
+    if (!documents.length) return null;
+    return (
+      documents.find((document) => document.document_id === selectedDocumentId) ||
+      documents[0]
+    );
+  }, [documents, selectedDocumentId]);
+
+  const selectedManifest = useMemo(() => {
+    if (!manifest || !selectedDocument) return manifest;
+    return {
+      ...manifest,
+      chunks: selectedDocument.chunks,
+    };
+  }, [manifest, selectedDocument]);
 
   useEffect(() => {
     if (!chunkId) return;
@@ -86,14 +110,41 @@ function App() {
     );
   }
 
-  return (
-    mode === "html" && manifest ? (
-      <MineruHtmlDocument manifest={manifest} chunkId={chunkId} />
-    ) : renderJson ? (
-      <JsonRenderDocument renderJson={renderJson} chunkId={chunkId} />
-    ) : (
-      <main className="min-h-screen bg-slate-100 p-8 text-slate-600">loading {chunkId}</main>
-    )
+  if (mode === "html" && manifest) {
+    if (view === "library") {
+      return (
+        <LibraryView
+          documents={documents}
+          onOpenDocument={(documentId) => {
+            setSelectedDocumentId(documentId);
+            setView("reader");
+          }}
+        />
+      );
+    }
+
+    if (!selectedDocument || !selectedManifest) {
+      return (
+        <main className="min-h-screen bg-slate-100 p-8 text-slate-600">
+          No documents found.
+        </main>
+      );
+    }
+
+    return (
+      <MineruHtmlDocument
+        manifest={selectedManifest}
+        chunkId={selectedDocument.chunks[0]?.chunk_id || chunkId}
+      />
+    );
+  }
+
+  return renderJson ? (
+    <JsonRenderDocument renderJson={renderJson} chunkId={chunkId} />
+  ) : (
+    <main className="min-h-screen bg-slate-100 p-8 text-slate-600">
+      loading {chunkId}
+    </main>
   );
 }
 
