@@ -191,6 +191,7 @@ def submit_chunk(
     enable_formula: bool = True,
     enable_table: bool = True,
     page_ranges: str | None = None,
+    extra_formats: list[str] | None = None,
 ) -> dict[str, Any]:
     """Request upload URL, upload chunk PDF, and save batch metadata."""
     resolved_pdf = resolve_chunk_pdf(chunk_pdf)
@@ -216,6 +217,8 @@ def submit_chunk(
         "enable_formula": enable_formula,
         "enable_table": enable_table,
     }
+    if extra_formats:
+        request_payload["extra_formats"] = extra_formats
 
     submit_response = requests.post(
         api_url(base_url, "/api/v4/file-urls/batch"),
@@ -359,6 +362,7 @@ def parse_args() -> argparse.Namespace:
     submit_parser.add_argument("--no-ocr", action="store_true")
     submit_parser.add_argument("--disable-formula", action="store_true")
     submit_parser.add_argument("--disable-table", action="store_true")
+    submit_parser.add_argument("--extra-format", action="append", default=None, help="Add extra output format.")
     add_common_api_args(submit_parser)
 
     poll_parser = subparsers.add_parser("poll", help="Poll one chunk once.")
@@ -388,6 +392,7 @@ def parse_args() -> argparse.Namespace:
     run_parser.add_argument("--no-ocr", action="store_true")
     run_parser.add_argument("--disable-formula", action="store_true")
     run_parser.add_argument("--disable-table", action="store_true")
+    run_parser.add_argument("--extra-format", action="append", default=None, help="Add extra output format.")
     run_parser.add_argument("--interval-seconds", type=int, default=10)
     run_parser.add_argument("--timeout-seconds", type=int, default=3600)
     run_parser.add_argument("--no-extract", action="store_true")
@@ -413,6 +418,7 @@ def main() -> None:
             enable_formula=not args.disable_formula,
             enable_table=not args.disable_table,
             page_ranges=args.page_ranges,
+            extra_formats=args.extra_format,
         )
         print(json.dumps(metadata, ensure_ascii=False, indent=2, sort_keys=True))
         return
@@ -464,6 +470,7 @@ def main() -> None:
             enable_formula=not args.disable_formula,
             enable_table=not args.disable_table,
             page_ranges=args.page_ranges,
+            extra_formats=args.extra_format,
         )
         chunk_id = metadata["chunk_id"]
         wait_until_done(
