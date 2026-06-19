@@ -2,7 +2,17 @@
 .cache/
 __pycache__/
 *.py[cod]
+.env
 
+node_modules/
+dist/
+
+*.pdf
+*.zip
+
+data/chunks/*
+data/original/*
+data/mineru_api_output/*
 data/mineru_output/*
 !data/mineru_output/.gitkeep
 
@@ -14,3 +24,6 @@ data/processed/*
 
 data/reports/*
 !data/reports/.gitkeep
+
+debug_reports/
+debug_page184_report.txt

@@ -1,0 +1,254 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans JP", "Noto Sans KR", "Hiragino Sans", Meiryo, Arial, sans-serif;
+}
+
+.markdown-container {
+  --data-fill: 13, 83, 222;
+  --data-stroke: 13, 83, 222;
+}
+
+.custom-block-title {
+  border-left-color: rgb(var(--data-stroke));
+  color: rgb(var(--data-fill));
+}
+
+.markdownRender {
+  color: #111827;
+  font-size: 16px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.markdownRender p {
+  line-height: 1.8;
+  margin: 0.65em 0;
+  white-space: pre-wrap;
+}
+
+.markdownRender h1,
+.markdownRender h2,
+.markdownRender h3 {
+  line-height: 1.35;
+  margin: 0.8em 0 0.45em;
+  font-weight: 700;
+}
+
+.markdownRender h1 {
+  font-size: 1.55rem;
+}
+
+.markdownRender h2 {
+  font-size: 1.25rem;
+}
+
+.markdownRender h3 {
+  font-size: 1.1rem;
+}
+
+.markdownRender ol,
+.markdownRender ul {
+  display: block;
+  margin: 0.75em 0 0.85em;
+  padding-left: 2rem;
+}
+
+.markdownRender ol {
+  list-style-type: decimal;
+}
+
+.markdownRender ol[type="a"] {
+  list-style-type: lower-alpha;
+}
+
+.markdownRender ol[type="A"] {
+  list-style-type: upper-alpha;
+}
+
+.markdownRender ol[type="i"] {
+  list-style-type: lower-roman;
+}
+
+.markdownRender ol[type="I"] {
+  list-style-type: upper-roman;
+}
+
+.markdownRender ul {
+  list-style-type: disc;
+}
+
+.markdownRender ul ul {
+  list-style-type: circle;
+}
+
+.markdownRender ul ul ul {
+  list-style-type: square;
+}
+
+.markdownRender li {
+  display: list-item;
+  margin: 0.28em 0;
+  padding-left: 0.2rem;
+}
+
+.markdownRender li > p {
+  margin: 0.25em 0;
+}
+
+.markdownRender blockquote {
+  margin: 0.9em 0;
+  padding: 0.1em 0 0.1em 1rem;
+  border-left: 4px solid rgba(var(--data-stroke), 0.35);
+  color: #4b5563;
+}
+
+.markdownRender table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 14px;
+}
+
+.markdownRender td,
+.markdownRender th {
+  border: 1px solid #d0d7de;
+  padding: 8px 10px;
+  vertical-align: top;
+}
+
+.markdownRender pre:not(.math-block) {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0.9em 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.markdownRender code {
+  border-radius: 4px;
+  background: #f1f5f9;
+  padding: 0.08rem 0.25rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+}
+
+.markdownRender pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.table-container {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.math-block {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 14px auto;
+  padding: 12px 14px;
+  border: 1px solid rgba(var(--data-stroke), 0.28);
+  border-radius: 8px;
+  background: rgba(var(--data-fill), 0.06);
+  color: rgb(var(--data-fill));
+  line-height: 1.65;
+  text-align: center;
+}
+
+.math-render {
+  white-space: normal;
+}
+
+.math-render .katex-display {
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+pre.math-block {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 14px;
+  white-space: pre;
+}
+
+.markdownRender img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 12px 0;
+}
+
+.custom-block-image.important-image img,
+.image-block.important-image img {
+  width: 75% !important;
+  max-width: 720px;
+  height: auto;
+  display: block;
+  margin: 18px auto 24px;
+}
+
+.custom-block-image.icon-image img,
+.image-block.icon-image img {
+  width: 96px !important;
+  max-width: 120px;
+  height: auto;
+  display: block;
+  margin: 8px 0 12px;
+}
+
+.custom-block-image.normal-image img,
+.image-block.normal-image img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 12px 0;
+}
+
+.md-wrapper.indent-level-1 {
+  margin-left: 28px;
+}
+
+.md-wrapper.indent-level-2 {
+  margin-left: 48px;
+}
+
+.md-wrapper.section-alpha {
+  margin-top: 18px;
+}
+
+.md-wrapper.section-numbered {
+  margin-top: 14px;
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    position: static;
+    height: auto;
+  }
+
+  .page-card {
+    padding: 24px;
+  }
+
+  .md-wrapper.indent-level-1 {
+    margin-left: 18px;
+  }
+
+  .md-wrapper.indent-level-2 {
+    margin-left: 28px;
+  }
+}

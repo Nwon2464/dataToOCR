@@ -1,78 +1,178 @@
-# dataocr MinerU Runner
+# dataToOCR
 
-This repository is a small local wrapper around the open-source MinerU CLI.
+USCPA scan PDF processing pipeline.
 
-Put input files in:
-
-```text
-data/samples/
-```
-
-Supported inputs for this wrapper:
+Current flow:
 
 ```text
-.pdf .png .jpg .jpeg .webp .bmp .tif .tiff
+original PDF -> 10-page PDF chunks -> MinerU Web API output -> Markdown segments -> DB index
 ```
 
-Outputs are written to:
+## Status
+
+Done:
 
 ```text
-data/mineru_output/<input-file-stem>/
+Phase 0: project data layout and path helpers
+Phase 1: PDF chunk splitting
+Phase 2: MinerU Web API batch script
 ```
 
-## Install
+Next:
 
-MinerU currently supports Python 3.10-3.13. For the simplest local setup:
+```text
+Phase 4: process Markdown into segments
+Phase 5: index documents in SQLite
+```
+
+## Data Layout
+
+```text
+data/
+  original/
+    USCPA REG1 1.pdf
+  chunks/
+    USCPA_REG1_p001_010.pdf
+    USCPA_REG1_p011_020.pdf
+    ...
+    USCPA_REG1_p251_252.pdf
+  mineru_api_output/
+    USCPA_REG1_p001_010/
+      raw.zip
+      full.md
+      content_list.json
+      middle.json
+      images/
+  processed/
+    USCPA_REG1_p001_010/
+      segments.json
+      document.json
+      review.html
+  db/
+    ocr_documents.sqlite3
+```
+
+## Scripts
+
+Current:
+
+```text
+scripts/split_pdf_chunks.py
+scripts/run_mineru_api_batch.py
+scripts/review_all_mineru_outputs.py
+scripts/common/api_paths.py
+scripts/common/project_paths.py
+scripts/common/mineru_paths.py
+scripts/common/md_segments.py
+```
+
+Planned:
+
+```text
+scripts/submit_mineru_api.py
+scripts/poll_mineru_api.py
+scripts/download_mineru_result.py
+scripts/process_mineru_markdown.py
+```
+
+## Setup
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install uv
-uv pip install -r requirements-mineru.txt
+pip install -r requirements-mineru.txt
 ```
 
-The first run can take a long time because MinerU may download model files.
+## Split PDF Chunks
 
-## Run
+Put source PDF in:
 
-One-command batch:
+```text
+data/original/
+```
+
+Run:
 
 ```bash
-python scripts/run_batch.py
+python3 scripts/split_pdf_chunks.py "USCPA REG1 1.pdf"
 ```
 
-The batch command scans `data/samples/`, skips files that already have
-`data/mineru_output/<input-file-stem>/auto/`, runs MinerU for missing outputs, and writes a
-manifest to `data/manifests/`.
+Default chunk size is 10 pages. Output goes to:
 
-CPU-compatible default:
+```text
+data/chunks/
+```
+
+Examples:
+
+```text
+data/chunks/USCPA_REG1_p001_010.pdf
+data/chunks/USCPA_REG1_p011_020.pdf
+data/chunks/USCPA_REG1_p251_252.pdf
+```
+
+Use custom chunk size:
 
 ```bash
-python scripts/run_mineru.py
+python3 scripts/split_pdf_chunks.py "USCPA REG1 1.pdf" --chunk-size 5
 ```
 
-Run one file:
+Override inferred book ID:
 
 ```bash
-python scripts/run_mineru.py --input "data/samples/example.pdf"
+python3 scripts/split_pdf_chunks.py "USCPA REG1 1.pdf" --book-id USCPA_REG1
 ```
 
-Use a different backend:
+## Run MinerU Web API
+
+Set token:
 
 ```bash
-python scripts/run_mineru.py --backend pipeline
-python scripts/run_mineru.py --backend auto
+export MINERU_API_TOKEN="..."
 ```
 
-`pipeline` is the conservative CPU-friendly backend. `auto` omits `-b` and lets MinerU pick the backend.
-
-## Notes
-
-The wrapper shells out to the official MinerU CLI:
+Submit one 10-page chunk:
 
 ```bash
-mineru -p <input_path> -o <output_path> -b pipeline
+python3 scripts/run_mineru_api_batch.py submit USCPA_REG1_p001_010.pdf
 ```
 
-If `mineru` is not found, activate the virtual environment or install the dependencies above.
+Poll status:
+
+```bash
+python3 scripts/run_mineru_api_batch.py poll USCPA_REG1_p001_010
+```
+
+Wait until done:
+
+```bash
+python3 scripts/run_mineru_api_batch.py wait USCPA_REG1_p001_010
+```
+
+Download and extract result zip:
+
+```bash
+python3 scripts/run_mineru_api_batch.py download USCPA_REG1_p001_010
+```
+
+Submit, wait, download, and extract in one command:
+
+```bash
+python3 scripts/run_mineru_api_batch.py run USCPA_REG1_p001_010.pdf
+```
+
+Extract manually:
+
+```bash
+python3 scripts/run_mineru_api_batch.py extract data/mineru_api_output/USCPA_REG1_p001_010/raw.zip
+python3 scripts/run_mineru_api_batch.py data/mineru_api_output/USCPA_REG1_p001_010/raw.zip
+```
+
+Outputs:
+
+```text
+data/mineru_api_output/USCPA_REG1_p001_010/api_task.json
+data/mineru_api_output/USCPA_REG1_p001_010/api_status.json
+data/mineru_api_output/USCPA_REG1_p001_010/raw.zip
+```

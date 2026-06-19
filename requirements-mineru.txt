@@ -1,1 +1,3 @@
 mineru[all]
+pypdf
+requests
