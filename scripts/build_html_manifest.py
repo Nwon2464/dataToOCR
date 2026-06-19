@@ -10,6 +10,7 @@ from typing import Any
 DEFAULT_INPUT_ROOT = Path("data/mineru_api_output")
 DEFAULT_OUTPUT_ROOT = Path("data/processed")
 CHUNK_RANGE_RE = re.compile(r"_p(\d+)_(\d+)$")
+PROTECTED_TAGS = ("<h1", "<h2", "<h3", "<p", "<table", "<ol", "<ul", "<img", "</body>", "</html>")
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,6 +48,13 @@ def parse_page_range(chunk_id: str) -> tuple[int | None, int | None]:
     return (int(match.group(1)), int(match.group(2)))
 
 
+def first_protected_tag_position(line: str, start: int = 0) -> int:
+    lower = line.lower()
+    positions = [lower.find(tag, start) for tag in PROTECTED_TAGS]
+    positions = [pos for pos in positions if pos != -1]
+    return min(positions) if positions else -1
+
+
 def strip_mermaid_blocks(html_text: str) -> tuple[str, int]:
     lines = html_text.splitlines(keepends=True)
     kept: list[str] = []
@@ -57,29 +65,67 @@ def strip_mermaid_blocks(html_text: str) -> tuple[str, int]:
         line = lines[index]
         stripped = line.strip()
 
-        if stripped == "flowchart" and index + 1 < len(lines) and lines[index + 1].lstrip().startswith("```mermaid"):
-            removed_count += 1
-            index += 2
-            while index < len(lines):
-                if lines[index].strip().startswith("```"):
-                    index += 1
-                    break
-                index += 1
-            continue
-
-        if line.lstrip().startswith("```mermaid"):
+        if stripped.startswith("mermaid graph "):
             removed_count += 1
             index += 1
-            while index < len(lines):
-                if lines[index].strip().startswith("```"):
-                    index += 1
-                    break
-                index += 1
             continue
 
-        if stripped.startswith("mermaid graph TD"):
-            removed_count += 1
-            index += 1
+        is_flowchart_open = stripped == "flowchart" and index + 1 < len(lines) and lines[index + 1].lstrip().startswith("```mermaid")
+        is_mermaid_open = line.lstrip().startswith("```mermaid")
+
+        if is_flowchart_open or is_mermaid_open:
+            prefix_lines = [line] if is_flowchart_open else []
+            open_index = index + 1 if is_flowchart_open else index
+            open_line = lines[open_index]
+            open_marker = open_line.lower().find("```mermaid")
+            search_start = open_marker + len("```mermaid") if open_marker >= 0 else 0
+
+            block_lines = prefix_lines + [open_line]
+            scan_index = open_index
+            first_line = True
+            found_close = False
+            rollback = False
+            remainder = ""
+
+            while scan_index < len(lines):
+                current = lines[scan_index]
+                search_from = search_start if first_line else 0
+                closing_pos = current.find("```", search_from)
+                protected_pos = first_protected_tag_position(current, search_from)
+
+                if closing_pos == -1 and protected_pos == -1:
+                    if scan_index != open_index:
+                        block_lines.append(current)
+                    scan_index += 1
+                    first_line = False
+                    continue
+
+                if protected_pos != -1 and (closing_pos == -1 or protected_pos < closing_pos):
+                    rollback = True
+                    break
+
+                removed_count += 1
+                remainder = current[closing_pos + 3 :]
+                found_close = True
+                break
+
+            if rollback:
+                kept.extend(block_lines)
+                if scan_index != open_index:
+                    kept.append(lines[scan_index])
+                index = scan_index + 1
+                continue
+
+            if found_close:
+                if remainder:
+                    lines[scan_index] = remainder
+                    index = scan_index
+                else:
+                    index = scan_index + 1
+                continue
+
+            kept.extend(block_lines)
+            index = len(lines)
             continue
 
         kept.append(line)
