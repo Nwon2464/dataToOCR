@@ -1,29 +1,79 @@
-.venv/
-.cache/
-__pycache__/
-*.py[cod]
-.env
+cd /home/wonn/projects/auth/dataToOCR
 
+cat > .gitignore <<'EOF'
+# Python
+.venv/
+venv/
+env/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Vite
 node_modules/
 dist/
+build/
+.cache/
+.vite/
 
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Logs / debug outputs
+logs/
+debug_upload_logs/
+debug_reports/
+*.log
+debug_page184_report.txt
+
+# Local agent/editor state
+.agents/
+.codex/
+.DS_Store
+
+# Archives / PDFs
 *.pdf
 *.zip
 
+# Pipeline generated data
 data/chunks/*
 data/original/*
 data/mineru_api_output/*
 data/mineru_output/*
-!data/mineru_output/.gitkeep
-
-data/manifests/*
-!data/manifests/.gitkeep
-
 data/processed/*
-!data/processed/.gitkeep
-
+data/manifests/*
 data/reports/*
-!data/reports/.gitkeep
+data/toc/*
+data/db/*
 
-debug_reports/
-debug_page184_report.txt
+# Keep directory placeholders
+!data/chunks/.gitkeep
+!data/original/.gitkeep
+!data/mineru_api_output/.gitkeep
+!data/mineru_output/.gitkeep
+!data/processed/.gitkeep
+!data/manifests/.gitkeep
+!data/reports/.gitkeep
+!data/toc/.gitkeep
+!data/db/.gitkeep
+
+# GoodNotes generated image candidates
+assets/goodnotes_icons/candidates/*
+assets/goodnotes_icons/candidates_manifest.json
+!assets/goodnotes_icons/candidates/.gitkeep
+
+# GoodNotes PDF exports
+exports/
+!exports/.gitkeep
+!exports/goodnotes/
+!exports/goodnotes/.gitkeep
+!exports/goodnotes/raw/
+!exports/goodnotes/raw/.gitkeep
+!exports/goodnotes/final/
+!exports/goodnotes/final/.gitkeep
+EOF

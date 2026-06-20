@@ -157,9 +157,13 @@ def build_chunk_entry(chunk_id: str, source_html: Path, output_root: Path) -> tu
 def build_html_manifest(input_root: Path, output_root: Path, pretty: bool = False) -> Path:
     input_root = input_root.resolve()
     output_root = output_root.resolve()
-    html_files = find_full_html_files(input_root)
 
+    html_files = find_full_html_files(input_root)
+    if not html_files:
+        raise RuntimeError(f"No full.html files found under: {input_root}")
+    
     chunks: list[dict[str, Any]] = []
+
     removed_counts: list[tuple[str, int]] = []
 
     for source_html in html_files:

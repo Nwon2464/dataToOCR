@@ -1,0 +1,219 @@
+.print-document {
+  min-height: 100vh;
+  background: #e8ebef;
+  color: #172033;
+}
+
+.print-toolbar {
+  position: sticky;
+  z-index: 20;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px max(20px, calc((100vw - 960px) / 2));
+  border-bottom: 1px solid #d7dce3;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.print-toolbar > div {
+  display: grid;
+  gap: 2px;
+}
+
+.print-toolbar span {
+  color: #667085;
+  font-size: 0.8rem;
+}
+
+.print-toolbar button {
+  flex: none;
+  border: 0;
+  border-radius: 9px;
+  background: #172033;
+  color: white;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+  padding: 10px 16px;
+}
+
+.print-toolbar button:disabled {
+  cursor: wait;
+  opacity: 0.45;
+}
+
+.print-loading,
+.print-error {
+  width: min(100%, 210mm);
+  box-sizing: border-box;
+  margin: 32px auto 0;
+  padding: 20px;
+  background: white;
+  color: #667085;
+}
+
+.print-error {
+  color: #b42318;
+}
+
+.print-content {
+  box-sizing: border-box;
+  width: min(100%, 210mm);
+  margin: 40px auto 72px;
+  padding: 22mm 20mm;
+  background: white;
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.13);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.print-document--loading .print-content {
+  visibility: hidden;
+}
+
+.print-content img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Restore browser defaults that existed inside old isolated MinerU iframes.
+   Tailwind preflight resets these elements in the combined print DOM. */
+.mineru-html-root {
+  color: #1a1a1a;
+  font-family: "Times New Roman", serif;
+  font-size: medium;
+  font-weight: normal;
+  line-height: normal;
+  text-rendering: optimizeLegibility;
+  font-kerning: normal;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.mineru-html-root h1 {
+  display: block;
+  margin: 0.67em 0;
+  font-size: 2em;
+  font-weight: bold;
+}
+
+.mineru-html-root h2 {
+  display: block;
+  margin: 0.83em 0;
+  font-size: 1.5em;
+  font-weight: bold;
+}
+
+.mineru-html-root h3 {
+  display: block;
+  margin: 1em 0;
+  font-size: 1.17em;
+  font-weight: bold;
+}
+
+.mineru-html-root h4 {
+  display: block;
+  margin: 1.33em 0;
+  font-size: 1em;
+  font-weight: bold;
+}
+
+.mineru-html-root h5 {
+  display: block;
+  margin: 1.67em 0;
+  font-size: 0.83em;
+  font-weight: bold;
+}
+
+.mineru-html-root h6 {
+  display: block;
+  margin: 2.33em 0;
+  font-size: 0.67em;
+  font-weight: bold;
+}
+
+.mineru-html-root p {
+  display: block;
+  margin: 1em 0;
+}
+
+.mineru-html-root strong,
+.mineru-html-root b {
+  font-weight: bold;
+}
+
+.mineru-html-root ul {
+  display: block;
+  margin: 1em 0;
+  padding-left: 40px;
+  list-style: disc;
+}
+
+.mineru-html-root ol {
+  display: block;
+  margin: 1em 0;
+  padding-left: 40px;
+  list-style: decimal;
+}
+
+.mineru-html-root li {
+  display: list-item;
+}
+
+@page {
+  size: A4;
+  margin: 18mm;
+}
+
+@media print {
+  html,
+  body,
+  .print-document {
+    background: white;
+  }
+
+  .print-toolbar,
+  .print-loading,
+  .print-error {
+    display: none !important;
+  }
+
+  .print-content {
+    width: auto;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    font-size: 12pt;
+  }
+
+  .mineru-html-root {
+    color: black;
+  }
+
+  .print-document--loading .print-content {
+    display: none;
+  }
+
+  .print-content table,
+  .print-content img,
+  .print-content figure {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
+
+@media (max-width: 640px) {
+  .print-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .print-content {
+    margin: 16px 0 40px;
+    padding: 28px 20px;
+    box-shadow: none;
+  }
+}

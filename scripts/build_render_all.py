@@ -202,6 +202,9 @@ def build_render_all(processed_root: Path, pretty: bool = False) -> Path:
         pages.extend(chunk_pages)
         blocks.extend(chunk_blocks)
 
+    if not source_chunks:
+        raise RuntimeError(f"No render.json chunks found under: {processed_root}")
+
     payload = {
         "schema_version": 2,
         "render_model": "mineru_block_v1",

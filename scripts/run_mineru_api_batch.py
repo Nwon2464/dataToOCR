@@ -217,8 +217,22 @@ def submit_chunk(
         "enable_formula": enable_formula,
         "enable_table": enable_table,
     }
-    if extra_formats:
-        request_payload["extra_formats"] = extra_formats
+
+    normalized_extra_formats: list[str] = []
+    for fmt in extra_formats or []:
+        normalized = fmt.strip().lower()
+        if normalized and normalized not in normalized_extra_formats:
+            normalized_extra_formats.append(normalized)
+
+    if "html" not in normalized_extra_formats:
+        normalized_extra_formats.append("html")
+
+    request_payload["extra_formats"] = normalized_extra_formats
+
+    if "html" not in request_payload["extra_formats"]:
+        raise RuntimeError("HTML output format is required but missing from MinerU API request.")
+
+    print(f"[submit] {chunk_id} extra_formats={request_payload['extra_formats']}")
 
     submit_response = requests.post(
         api_url(base_url, "/api/v4/file-urls/batch"),

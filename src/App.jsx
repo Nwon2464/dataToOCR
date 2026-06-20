@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import LibraryView from "./components/LibraryView";
+import GoodNotesExportView from "./components/GoodNotesExportView";
 import { groupChunksByDocument } from "./lib/documents";
 import JsonRenderDocument from "./renderers/JsonRenderDocument";
 import MineruHtmlDocument from "./renderers/MineruHtmlDocument";
@@ -9,7 +10,7 @@ function routeChunkId() {
   return match?.[1] || "USCPA_REG1_p001_010";
 }
 
-function App() {
+function ViewerApp() {
   const [chunkId] = useState(routeChunkId());
   const [mode, setMode] = useState("loading");
   const [manifest, setManifest] = useState(null);
@@ -146,6 +147,14 @@ function App() {
       loading {chunkId}
     </main>
   );
+}
+
+function App() {
+  if (window.location.pathname.startsWith("/goodnotes-export/")) {
+    return <GoodNotesExportView />;
+  }
+
+  return <ViewerApp />;
 }
 
 export default App;

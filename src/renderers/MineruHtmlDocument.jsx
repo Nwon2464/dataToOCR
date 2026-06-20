@@ -1,41 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-const CONTINUOUS_FALLBACK_HEIGHT = 1200;
-const LAST_POSITION_KEY_PREFIX = "reader:last-position:";
-
-function formatPageNumber(value) {
-  return String(value).padStart(3, "0");
-}
+import { useEffect, useMemo, useRef, useState } from "react";
+import "./MineruHtmlDocument.css";
 
 function toPageNumber(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
-}
-
-function parseDocumentId(chunkId) {
-  const match = String(chunkId || "").match(/^(.*)_p\d+_\d+$/);
-  return match?.[1] || String(chunkId || "Document");
-}
-
-function documentDisplayName(documentId) {
-  return String(documentId || "Document").replace(/[_-]+/g, " ").trim();
-}
-
-function readLastPosition(documentId, chunks) {
-  const fallback = { index: 0, viewMode: "single", restored: false };
-  if (!documentId || !chunks.length || typeof window === "undefined") return fallback;
-  try {
-    const raw = window.localStorage.getItem(`${LAST_POSITION_KEY_PREFIX}${documentId}`);
-    if (!raw) return fallback;
-    const saved = JSON.parse(raw);
-    if (saved?.document_id !== documentId) return fallback;
-    const index = chunks.findIndex((chunk) => chunk.chunk_id === saved?.currentChunkId);
-    if (index < 0) return fallback;
-    const viewMode = saved?.viewMode === "continuous" ? "continuous" : "single";
-    return { index, viewMode, restored: true };
-  } catch {
-    return fallback;
-  }
 }
 
 function normalizeChunks(manifest) {
@@ -45,874 +13,221 @@ function normalizeChunks(manifest) {
       (toPageNumber(left?.page_start) ?? Number.POSITIVE_INFINITY) -
       (toPageNumber(right?.page_start) ?? Number.POSITIVE_INFINITY);
     if (startDifference) return startDifference;
-
-    const endDifference =
-      (toPageNumber(left?.page_end) ?? Number.POSITIVE_INFINITY) -
-      (toPageNumber(right?.page_end) ?? Number.POSITIVE_INFINITY);
-    if (endDifference) return endDifference;
     return String(left?.chunk_id || "").localeCompare(String(right?.chunk_id || ""));
   });
 }
 
-function chunkRangeLabel(chunk) {
-  const start = toPageNumber(chunk?.page_start);
-  const end = toPageNumber(chunk?.page_end);
-  if (start != null && end != null) return `p${formatPageNumber(start)} - p${formatPageNumber(end)}`;
-  if (start != null) return `p${formatPageNumber(start)}`;
-  return "p???";
+function parseDocumentId(chunkId) {
+  const match = String(chunkId || "").match(/^(.*)_p\d+_\d+$/);
+  return match?.[1] || String(chunkId || "Document");
 }
 
-function chunkDisplayLabel(chunk) {
-  const title = String(chunk?.title || chunk?.chunk_id || "Chunk").trim();
-  return `${title} · ${chunkRangeLabel(chunk)}`;
+function displayName(value) {
+  return String(value || "Document").replace(/[_-]+/g, " ").trim();
 }
 
-function findChunkForPage(chunks, page) {
-  return chunks.findIndex((chunk) => {
-    const start = toPageNumber(chunk?.page_start);
-    const end = toPageNumber(chunk?.page_end);
-    return start != null && end != null && page >= start && page <= end;
+function isRelativeUrl(value) {
+  const url = String(value || "").trim();
+  return Boolean(url) && !url.startsWith("#") && !url.startsWith("/") &&
+    !/^[a-z][a-z\d+.-]*:/i.test(url) && !url.startsWith("//");
+}
+
+function rewriteSrcset(value, assetBase) {
+  return String(value || "")
+    .split(",")
+    .map((candidate) => {
+      const parts = candidate.trim().split(/\s+/);
+      if (isRelativeUrl(parts[0])) parts[0] = `${assetBase}${parts[0]}`;
+      return parts.join(" ");
+    })
+    .join(", ");
+}
+
+function scopeDocumentStyles(cssText) {
+  return String(cssText || "")
+    .replace(/\bhtml\b(?=\s*[,>{[])/g, ".mineru-html-root")
+    .replace(/\bbody\b(?=\s*[,>{[])/g, ".mineru-html-root");
+}
+
+function prepareHtml(source, chunkId) {
+  const parser = new DOMParser();
+  const parsed = parser.parseFromString(source, "text/html");
+  const assetBase = `/processed/${encodeURIComponent(chunkId)}/html/`;
+
+  parsed.querySelectorAll("script").forEach((node) => node.remove());
+  parsed.querySelectorAll("img").forEach((image) => {
+    image.loading = "eager";
+    image.removeAttribute("loading");
+    image.removeAttribute("decoding");
   });
+  parsed.querySelectorAll("[src], [href]").forEach((node) => {
+    for (const attribute of ["src", "href"]) {
+      const value = node.getAttribute(attribute);
+      if (isRelativeUrl(value)) node.setAttribute(attribute, `${assetBase}${value}`);
+    }
+  });
+  parsed.querySelectorAll("[srcset]").forEach((node) => {
+    node.setAttribute("srcset", rewriteSrcset(node.getAttribute("srcset"), assetBase));
+  });
+
+  const styles = Array.from(parsed.head.querySelectorAll("style, link[rel='stylesheet']"))
+    .map((node) => {
+      if (node.tagName.toLowerCase() !== "style") return node.outerHTML;
+      const styleId = node.id ? ` id="${node.id}"` : "";
+      return `<style${styleId}>${scopeDocumentStyles(node.textContent)}</style>`;
+    })
+    .join("");
+  return `${styles}${parsed.body.innerHTML}`;
 }
 
-function initialLoadedIndexes(index, length) {
-  const indexes = [];
-  for (let value = index - 1; value <= index + 2; value += 1) {
-    if (value >= 0 && value < length) indexes.push(value);
+async function loadChunk(chunk, signal) {
+  const response = await fetch(chunk.html_path, { cache: "force-cache", signal });
+  if (!response.ok) {
+    throw new Error(`${chunk.chunk_id}: ${response.status} ${response.statusText}`);
   }
-  return indexes;
+  return {
+    ...chunk,
+    preparedHtml: prepareHtml(await response.text(), chunk.chunk_id),
+  };
 }
 
-function getCurrentVisibleChunkIndex(sectionRefs, anchorY, fallbackIndex) {
-  let lastIndexAboveMarker = null;
-  let firstIndexBelowMarker = null;
-  let readySectionCount = 0;
-
-  sectionRefs.current.forEach((section, index) => {
-    if (!section) return;
-    readySectionCount += 1;
-    const rect = section.getBoundingClientRect();
-
-    if (rect.top <= anchorY && rect.bottom > anchorY) {
-      lastIndexAboveMarker = index;
-      return;
-    }
-
-    if (rect.top <= anchorY) lastIndexAboveMarker = index;
-    else if (firstIndexBelowMarker == null) firstIndexBelowMarker = index;
-  });
-
-  if (readySectionCount === 0) return null;
-  return lastIndexAboveMarker ?? firstIndexBelowMarker ?? fallbackIndex;
-}
-
-function NavigationDrawer({ documentName, chunks, currentIndex, open, onClose, onSelectChunk }) {
-  const navRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return;
-    requestAnimationFrame(() => {
-      navRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: "center" });
-    });
-  }, [currentIndex, open]);
-
-  return (
-    <>
-      <button
-        type="button"
-        aria-label="Close navigation"
-        tabIndex={open ? 0 : -1}
-        onClick={onClose}
-        className={`fixed inset-0 z-40 bg-slate-950/25 transition-opacity duration-300 ${
-          open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
-        }`}
-      />
-      <aside
-        role="dialog"
-        aria-modal="true"
-        aria-label="Page navigation"
-        aria-hidden={!open}
-        inert={open ? undefined : ""}
-        className={`fixed inset-y-0 left-0 z-50 flex w-[min(320px,86vw)] flex-col overflow-hidden border-r border-slate-200 bg-white shadow-xl transition-transform duration-300 ease-out ${
-          open ? "translate-x-0" : "-translate-x-full"
-        }`}
-        style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
-      >
-        <div className="flex min-h-14 shrink-0 items-center justify-between border-b border-slate-200 px-4">
-          <div className="truncate pr-3 text-sm font-semibold text-slate-900">{documentName}</div>
-          <button
-            type="button"
-            aria-label="Close navigation"
-            onClick={onClose}
-            className="flex min-h-11 min-w-11 items-center justify-center rounded-full text-xl text-slate-600 active:bg-slate-100"
-          >
-            ×
-          </button>
-        </div>
-        <nav ref={navRef} className="grid min-h-0 flex-1 content-start gap-1 overflow-y-auto overscroll-contain p-3">
-          {chunks.map((chunk, index) => {
-            const active = index === currentIndex;
-            return (
-              <button
-                key={chunk.chunk_id || index}
-                type="button"
-                data-active={active}
-                onClick={() => onSelectChunk(index)}
-                className={`min-h-12 w-full border-l-2 px-4 py-3 text-left text-[15px] transition-colors active:bg-slate-100 ${
-                  active
-                    ? "border-slate-900 bg-slate-100 font-semibold text-slate-950"
-                    : "border-transparent text-slate-700"
-                }`}
-              >
-                {chunkRangeLabel(chunk)}
-              </button>
-            );
-          })}
-        </nav>
-      </aside>
-    </>
-  );
-}
-
-function DrawerOpenButton({ onClick }) {
-  return (
-    <button
-      type="button"
-      aria-label="Open page navigation"
-      onClick={onClick}
-      className="fixed top-1/2 z-30 flex h-12 min-w-11 -translate-y-1/2 items-center justify-center rounded-r-xl border border-l-0 border-slate-300 bg-white/90 text-xl font-medium text-slate-700 shadow-sm backdrop-blur active:bg-slate-100"
-      style={{ left: "env(safe-area-inset-left)" }}
-    >
-      &gt;
-    </button>
-  );
-}
-
-function RenderToolbar({
-  toolbarRef,
-  documentId,
-  currentChunk,
-  currentIndex,
-  chunks,
-  viewerMode,
-  pageJump,
-  jumpError,
-  onModeChange,
-  onPageJumpChange,
-  onGoToPage,
-  onPrevious,
-  onNext,
-  totalPages,
-  progressPercent,
-  focusMode,
-  onFocusToggle,
-}) {
-  return (
-    <header ref={toolbarRef} className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50/95 backdrop-blur">
-      <div className="flex min-h-12 flex-wrap items-center gap-1.5 px-3 py-1.5 sm:gap-2 lg:px-4">
-        <div className="w-[calc(100%-72px)] min-w-0 flex-none py-0.5 sm:w-auto sm:flex-1">
-          <div className="truncate text-sm font-semibold text-slate-900">{documentId}</div>
-          <div className="flex items-center gap-2 text-[11px] text-slate-500">
-            <span>{chunkRangeLabel(currentChunk)} / p{formatPageNumber(totalPages)}</span>
-            <span className="font-medium text-slate-700">{progressPercent}%</span>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={onFocusToggle}
-          aria-pressed={focusMode}
-          className={`min-h-10 rounded-md border px-2.5 text-xs ${
-            focusMode
-              ? "border-slate-900 bg-slate-900 text-white"
-              : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-          }`}
-        >
-          {focusMode ? "Exit Focus" : "Focus"}
-        </button>
-
-        <div className="flex w-full items-center gap-1 overflow-x-auto sm:w-auto sm:overflow-visible">
-          <div className="flex min-h-10 shrink-0 rounded-md border border-slate-300 bg-white p-0.5 text-xs">
-            {[
-              ["single", "Single"],
-              ["continuous", "Continuous"],
-            ].map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => onModeChange(value)}
-                className={`rounded px-2.5 ${
-                  viewerMode === value ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex shrink-0 items-center gap-1">
-            <button
-              type="button"
-              onClick={onPrevious}
-              disabled={currentIndex <= 0}
-              className="min-h-10 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <span className="sm:hidden">Prev</span><span className="hidden sm:inline">Previous</span>
-            </button>
-            <button
-              type="button"
-              onClick={onNext}
-              disabled={currentIndex >= chunks.length - 1}
-              className="min-h-10 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Next
-            </button>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-1">
-            <input
-              value={pageJump}
-              onChange={(event) => onPageJumpChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") onGoToPage();
-              }}
-              inputMode="numeric"
-              placeholder="page"
-              aria-label="Page number"
-              className="min-h-10 w-14 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-900 outline-none focus:border-slate-500 sm:w-20"
-            />
-            <button
-              type="button"
-              onClick={onGoToPage}
-              className="min-h-10 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
-            >
-              Go
-            </button>
-          </div>
-        </div>
-      </div>
-      {jumpError ? <div className="px-4 pb-2 text-xs text-red-700">{jumpError}</div> : null}
-      <div
-        role="progressbar"
-        aria-label="Reading progress"
-        aria-valuemin="0"
-        aria-valuemax="100"
-        aria-valuenow={progressPercent}
-        className="h-0.5 bg-slate-200"
-      >
-        <div
-          className="h-full bg-slate-700 transition-[width] duration-300"
-          style={{ width: `${progressPercent}%` }}
-        />
-      </div>
-    </header>
-  );
-}
-
-function RenderSingleChunk({ chunk, loadState, errorMessage, onLoad, onError }) {
-  return (
-    <section className="relative min-h-[calc(100dvh-100px)] bg-white sm:min-h-[calc(100dvh-49px)]">
-      {errorMessage ? (
-        <div className="p-6 text-sm text-red-700">{errorMessage}</div>
-      ) : (
-        <div className="relative min-h-[calc(100dvh-100px)] bg-white sm:min-h-[calc(100dvh-49px)]">
-          {loadState !== "ready" ? (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/90 text-sm text-slate-500">
-              Loading chunk...
-            </div>
-          ) : null}
-          <iframe
-            key={chunk.html_path}
-            title={chunk.chunk_id || chunkDisplayLabel(chunk)}
-            src={chunk.html_path}
-            className={`block min-h-[calc(100dvh-100px)] w-full border-0 transition-opacity sm:min-h-[calc(100dvh-49px)] ${
-              loadState === "ready" ? "opacity-100" : "opacity-0"
-            }`}
-            onLoad={onLoad}
-            onError={onError}
-          />
-        </div>
-      )}
-    </section>
-  );
-}
-
-function ContinuousIframe({ chunk }) {
-  const iframeRef = useRef(null);
-  const resizeObserverRef = useRef(null);
-  const [height, setHeight] = useState(CONTINUOUS_FALLBACK_HEIGHT);
-  const [state, setState] = useState("loading");
-
-  useEffect(() => () => resizeObserverRef.current?.disconnect(), []);
-
-  function resizeIframe() {
-    try {
-      const iframe = iframeRef.current;
-      const iframeDocument = iframe?.contentDocument;
-      if (!iframeDocument) throw new Error("Iframe document unavailable");
-      const nextHeight = Math.max(
-        iframeDocument.body?.scrollHeight || 0,
-        iframeDocument.documentElement?.scrollHeight || 0,
-        1,
-      );
-      setHeight(nextHeight);
-      resizeObserverRef.current?.disconnect();
-      resizeObserverRef.current = new ResizeObserver(resizeIframe);
-      if (iframeDocument.body) resizeObserverRef.current.observe(iframeDocument.body);
-      if (iframeDocument.documentElement) resizeObserverRef.current.observe(iframeDocument.documentElement);
-      setState("ready");
-    } catch {
-      setHeight(CONTINUOUS_FALLBACK_HEIGHT);
-      setState("ready");
-    }
+function waitForImage(image, signal) {
+  if (image.complete) {
+    return image.naturalWidth > 0
+      ? Promise.resolve()
+      : Promise.reject(new Error(`Image failed: ${image.currentSrc || image.src}`));
   }
 
-  return (
-    <div className="relative bg-white" style={{ minHeight: state === "loading" ? CONTINUOUS_FALLBACK_HEIGHT : height }}>
-      {state === "loading" ? (
-        <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-500">Loading chunk...</div>
-      ) : null}
-      {state === "error" ? (
-        <div className="p-6 text-sm text-red-700">Iframe load failed.</div>
-      ) : (
-        <iframe
-          ref={iframeRef}
-          title={chunk.chunk_id || "chunk"}
-          src={chunk.html_path}
-          style={{ height }}
-          className={`block w-full border-0 ${state === "ready" ? "opacity-100" : "opacity-0"}`}
-          onLoad={resizeIframe}
-          onError={() => setState("error")}
-        />
-      )}
-    </div>
-  );
-}
-
-function RenderContinuousDocument({ chunks, loadedIndexes, sectionRefs }) {
-  return (
-    <div className="bg-white">
-      {chunks.map((chunk, index) => {
-        const loaded = loadedIndexes.has(index);
-        return (
-          <section
-            key={chunk.chunk_id || index}
-            ref={(node) => {
-              sectionRefs.current[index] = node;
-            }}
-            data-chunk-index={index}
-            className="scroll-mt-12 bg-white"
-          >
-            <div className="flex h-6 items-center justify-between gap-3 border-y border-slate-200 bg-slate-50/70 px-3 text-[10px] text-slate-400 first:border-t-0">
-              <span>{chunkRangeLabel(chunk)}</span>
-              <span className="truncate">{chunk.chunk_id || `chunk-${index + 1}`}</span>
-            </div>
-            {loaded ? (
-              <ContinuousIframe chunk={chunk} />
-            ) : (
-              <div className="flex min-h-[480px] items-center justify-center bg-white px-6 py-20 text-center">
-                <div>
-                  <div className="text-sm font-medium text-slate-700">{chunkRangeLabel(chunk)}</div>
-                  <div className="mt-2 text-xs text-slate-400">{chunk.chunk_id || `chunk-${index + 1}`}</div>
-                </div>
-              </div>
-            )}
-          </section>
-        );
-      })}
-    </div>
-  );
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      image.removeEventListener("load", onLoad);
+      image.removeEventListener("error", onError);
+      signal.removeEventListener("abort", onAbort);
+    };
+    const onLoad = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error(`Image failed: ${image.currentSrc || image.src}`));
+    };
+    const onAbort = () => {
+      cleanup();
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    image.addEventListener("load", onLoad, { once: true });
+    image.addEventListener("error", onError, { once: true });
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export default function MineruHtmlDocument({ manifest, chunkId }) {
   const chunks = useMemo(() => normalizeChunks(manifest), [manifest]);
-  const documentId = useMemo(() => parseDocumentId(chunkId || chunks[0]?.chunk_id), [chunkId, chunks]);
-  const documentName = useMemo(() => documentDisplayName(documentId), [documentId]);
-  const initialPosition = useMemo(() => readLastPosition(documentId, chunks), [chunks, documentId]);
-  const initialIndex = initialPosition.index;
-  const totalPages = useMemo(() => chunks.reduce((maximum, chunk) => {
-    const pageEnd = toPageNumber(chunk?.page_end);
-    return pageEnd == null ? maximum : Math.max(maximum, pageEnd);
-  }, 0), [chunks]);
-  const [viewerMode, setViewerMode] = useState(initialPosition.viewMode);
-  const [currentIndex, setCurrentIndex] = useState(initialIndex);
-  const [pageJump, setPageJump] = useState("");
-  const [jumpError, setJumpError] = useState("");
-  const [loadState, setLoadState] = useState("loading");
-  const [errorMessage, setErrorMessage] = useState("");
-  const [focusMode, setFocusMode] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [loadedIndexes, setLoadedIndexes] = useState(
-    () => new Set(initialLoadedIndexes(initialIndex, chunks.length)),
+  const documentId = useMemo(
+    () => parseDocumentId(chunkId || chunks[0]?.chunk_id),
+    [chunkId, chunks],
   );
-  const [prefetchedIndexes, setPrefetchedIndexes] = useState(() => new Set());
-  const sectionRefs = useRef([]);
-  const toolbarRef = useRef(null);
-  const trackVisibleChunkRef = useRef(null);
-  const currentIndexRef = useRef(initialIndex);
-  const navigationTargetRef = useRef(null);
-  const navigationTimeoutRef = useRef(null);
-  const restoredScrollRef = useRef(false);
-  const lastScrollYRef = useRef(0);
-  const lastCommittedScrollYRef = useRef(null);
-  const scrollDirectionRef = useRef(0);
-  const scrollDirectionTimeoutRef = useRef(null);
-  const lastTouchYRef = useRef(null);
-
-  const currentChunk = chunks[currentIndex] || chunks[0] || null;
-  const nextChunk = chunks[currentIndex + 1] || null;
-  const currentPageEnd = toPageNumber(currentChunk?.page_end) || 0;
-  const progressPercent = totalPages > 0
-    ? Math.min(100, Math.max(0, Math.round((currentPageEnd / totalPages) * 100)))
-    : 0;
-
-  const setTrackedCurrentIndex = useCallback((index) => {
-    currentIndexRef.current = index;
-    setCurrentIndex(index);
-  }, []);
-
-  const scrollToChunkSection = useCallback((index, behavior = "smooth") => {
-    let attempt = 0;
-    const tryScroll = () => {
-      const section = sectionRefs.current[index];
-      if (section) {
-        section.scrollIntoView({ behavior, block: "start" });
-        return;
-      }
-      attempt += 1;
-      if (attempt < 5) requestAnimationFrame(tryScroll);
-    };
-    requestAnimationFrame(tryScroll);
-  }, []);
-
-  const navigateToChunk = useCallback((targetIndex, options = {}) => {
-    const index = Number(targetIndex);
-    if (!Number.isInteger(index) || index < 0 || index >= chunks.length) return false;
-
-    const targetMode = options.mode || viewerMode;
-    currentIndexRef.current = index;
-    setCurrentIndex(index);
-    setJumpError("");
-    setLoadedIndexes((previous) => {
-      const next = new Set(previous);
-      initialLoadedIndexes(index, chunks.length).forEach((loadedIndex) => next.add(loadedIndex));
-      return next;
-    });
-
-    if (options.closeDrawer) setDrawerOpen(false);
-
-    if (targetMode === "single") {
-      navigationTargetRef.current = null;
-      if (navigationTimeoutRef.current) clearTimeout(navigationTimeoutRef.current);
-      setLoadState("loading");
-      setErrorMessage("");
-    } else {
-      navigationTargetRef.current = index;
-      if (navigationTimeoutRef.current) clearTimeout(navigationTimeoutRef.current);
-      navigationTimeoutRef.current = setTimeout(() => {
-        navigationTargetRef.current = null;
-        trackVisibleChunkRef.current?.();
-      }, 2000);
-      scrollToChunkSection(index, options.behavior || "smooth");
-    }
-    return true;
-  }, [chunks.length, scrollToChunkSection, viewerMode]);
-
-  const navigateByOffset = useCallback((offset) => {
-    navigateToChunk(currentIndexRef.current + offset);
-  }, [navigateToChunk]);
-
-  const navigateToPage = useCallback((pageNumber) => {
-    const page = Number.parseInt(pageNumber, 10);
-    if (!Number.isFinite(page)) {
-      setJumpError("Enter valid page number.");
-      return false;
-    }
-    const targetIndex = findChunkForPage(chunks, page);
-    if (targetIndex === -1) {
-      setJumpError(`Page ${page} not found.`);
-      return false;
-    }
-    return navigateToChunk(targetIndex);
-  }, [chunks, navigateToChunk]);
+  const [loadedChunks, setLoadedChunks] = useState([]);
+  const [status, setStatus] = useState("loading-html");
+  const [error, setError] = useState("");
+  const contentRef = useRef(null);
 
   useEffect(() => {
-    if (!chunks.length) return;
-    const restoredIndex = initialPosition.index;
-    currentIndexRef.current = restoredIndex;
-    navigationTargetRef.current = null;
-    restoredScrollRef.current = false;
-    lastScrollYRef.current = window.scrollY;
-    lastCommittedScrollYRef.current = null;
-    scrollDirectionRef.current = 0;
-    setCurrentIndex(restoredIndex);
-    setViewerMode(initialPosition.viewMode);
-    setLoadedIndexes(new Set(initialLoadedIndexes(restoredIndex, chunks.length)));
-    setPrefetchedIndexes(new Set());
-    setPageJump("");
-    setJumpError("");
-    if (import.meta.env.DEV) {
-      console.info("[reader-track]", {
-        reason: "mount-position",
-        restored: initialPosition.restored,
-        currentIndex: restoredIndex,
-        viewerMode: initialPosition.viewMode,
-        scrollY: window.scrollY,
-      });
-    }
-  }, [chunks, initialPosition]);
-
-  useEffect(() => {
-    if (!currentChunk?.chunk_id || !documentId) return;
-    try {
-      window.localStorage.setItem(`${LAST_POSITION_KEY_PREFIX}${documentId}`, JSON.stringify({
-        document_id: documentId,
-        currentChunkIndex: currentIndex,
-        currentChunkId: currentChunk.chunk_id,
-        page_start: toPageNumber(currentChunk.page_start),
-        page_end: toPageNumber(currentChunk.page_end),
-        viewMode: viewerMode,
-        updatedAt: new Date().toISOString(),
-      }));
-    } catch {
-      // Storage may be unavailable in iOS private browsing mode.
-    }
-  }, [currentChunk, currentIndex, documentId, viewerMode]);
-
-  useEffect(() => {
-    if (!initialPosition.restored || restoredScrollRef.current || viewerMode !== "continuous") return;
-    restoredScrollRef.current = true;
-    navigationTargetRef.current = currentIndexRef.current;
-    if (navigationTimeoutRef.current) clearTimeout(navigationTimeoutRef.current);
-    navigationTimeoutRef.current = setTimeout(() => {
-      navigationTargetRef.current = null;
-      trackVisibleChunkRef.current?.();
-    }, 2000);
-    if (import.meta.env.DEV) {
-      console.info("[reader-track]", {
-        reason: "restore-scroll",
-        targetIndex: currentIndexRef.current,
-        scrollY: window.scrollY,
-      });
-    }
-    scrollToChunkSection(currentIndexRef.current, "instant");
-  }, [initialPosition.restored, scrollToChunkSection, viewerMode]);
-
-  useEffect(() => {
-    setLoadedIndexes((previous) => {
-      const next = new Set(previous);
-      initialLoadedIndexes(currentIndex, chunks.length).forEach((index) => next.add(index));
-      return next;
-    });
-  }, [chunks.length, currentIndex]);
-
-  useEffect(() => {
-    if (viewerMode !== "continuous") return undefined;
-    const loadObserver = new IntersectionObserver(
-      (entries) => {
-        const indexes = entries
-          .filter((entry) => entry.isIntersecting)
-          .map((entry) => Number(entry.target.dataset.chunkIndex));
-        if (!indexes.length) return;
-        setLoadedIndexes((previous) => new Set([...previous, ...indexes]));
-      },
-      { rootMargin: "1000px 0px" },
-    );
-
-    let trackingFrame = null;
-    const rememberScrollDirection = (direction) => {
-      if (!direction) return;
-      scrollDirectionRef.current = direction;
-      if (scrollDirectionTimeoutRef.current) clearTimeout(scrollDirectionTimeoutRef.current);
-      scrollDirectionTimeoutRef.current = setTimeout(() => {
-        scrollDirectionRef.current = 0;
-      }, 240);
-    };
-
-    const trackCurrentChunk = () => {
-      trackingFrame = null;
-      const toolbarBottom = toolbarRef.current?.getBoundingClientRect().bottom || 0;
-      const anchorY = Math.min(window.innerHeight - 1, Math.max(0, toolbarBottom + 8));
-      const visibleIndex = getCurrentVisibleChunkIndex(
-        sectionRefs,
-        anchorY,
-        currentIndexRef.current,
-      );
-      if (visibleIndex == null) return;
-
-      const navigationTarget = navigationTargetRef.current;
-      if (navigationTarget != null) {
-        if (visibleIndex !== navigationTarget) return;
-        navigationTargetRef.current = null;
-        if (navigationTimeoutRef.current) clearTimeout(navigationTimeoutRef.current);
-        lastCommittedScrollYRef.current = window.scrollY;
-        if (import.meta.env.DEV) {
-          console.info("[reader-track]", {
-            reason: "navigation-target-reached",
-            previousIndex: currentIndexRef.current,
-            nextIndex: visibleIndex,
-            scrollY: window.scrollY,
-          });
-        }
-      }
-
-      const previousIndex = currentIndexRef.current;
-      if (visibleIndex === previousIndex) {
-        if (lastCommittedScrollYRef.current == null) lastCommittedScrollYRef.current = window.scrollY;
-        return;
-      }
-
-      const direction = scrollDirectionRef.current;
-      const committedScrollY = lastCommittedScrollYRef.current ?? window.scrollY;
-      const movingBackward = visibleIndex < previousIndex;
-      const contradictsDirection =
-        (direction > 0 && movingBackward) ||
-        (direction < 0 && !movingBackward);
-      const contradictsPosition =
-        direction === 0 && (
-          (movingBackward && window.scrollY >= committedScrollY - 1) ||
-          (!movingBackward && window.scrollY <= committedScrollY + 1)
-        );
-
-      if (contradictsDirection || contradictsPosition) {
-        if (import.meta.env.DEV) {
-          console.info("[reader-track]", {
-            reason: "direction-guard",
-            previousIndex,
-            nextIndex: visibleIndex,
-            direction,
-            scrollY: window.scrollY,
-            committedScrollY,
-          });
-        }
-        return;
-      }
-
-      lastCommittedScrollYRef.current = window.scrollY;
-      if (import.meta.env.DEV) {
-        console.info("[reader-track]", {
-          reason: "scroll-marker",
-          previousIndex,
-          nextIndex: visibleIndex,
-          direction,
-          scrollY: window.scrollY,
-        });
-      }
-      setTrackedCurrentIndex(visibleIndex);
-    };
-
-    const scheduleTracking = () => {
-      if (trackingFrame != null) return;
-      trackingFrame = requestAnimationFrame(trackCurrentChunk);
-    };
-
-    const cancelProgrammaticNavigation = (reason) => {
-      if (navigationTargetRef.current == null) return;
-      const cancelledTarget = navigationTargetRef.current;
-      navigationTargetRef.current = null;
-      if (navigationTimeoutRef.current) clearTimeout(navigationTimeoutRef.current);
-      if (import.meta.env.DEV) {
-        console.info("[reader-track]", {
-          reason,
-          cancelledTarget,
-          currentIndex: currentIndexRef.current,
-          scrollY: window.scrollY,
-        });
-      }
-      scheduleTracking();
-    };
-
-    const onScroll = () => {
-      const scrollY = window.scrollY;
-      const delta = scrollY - lastScrollYRef.current;
-      if (Math.abs(delta) > 1) {
-        const nextDirection = delta > 0 ? 1 : -1;
-        if (scrollDirectionRef.current === 0 || scrollDirectionRef.current === nextDirection) {
-          rememberScrollDirection(nextDirection);
-        }
-      }
-      lastScrollYRef.current = scrollY;
-      scheduleTracking();
-    };
-
-    const onWheel = (event) => {
-      if (Math.abs(event.deltaY) > 0) rememberScrollDirection(event.deltaY > 0 ? 1 : -1);
-      cancelProgrammaticNavigation("wheel-cancel-navigation");
-    };
-
-    const onTouchStart = (event) => {
-      lastTouchYRef.current = event.touches[0]?.clientY ?? null;
-      cancelProgrammaticNavigation("touch-cancel-navigation");
-    };
-
-    const onTouchMove = (event) => {
-      const touchY = event.touches[0]?.clientY;
-      const previousTouchY = lastTouchYRef.current;
-      if (touchY != null && previousTouchY != null && Math.abs(touchY - previousTouchY) > 1) {
-        rememberScrollDirection(touchY < previousTouchY ? 1 : -1);
-      }
-      lastTouchYRef.current = touchY ?? null;
-    };
-
-    const onTouchEnd = () => {
-      lastTouchYRef.current = null;
-    };
-
-    trackVisibleChunkRef.current = scheduleTracking;
-    lastScrollYRef.current = window.scrollY;
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", scheduleTracking);
-    window.addEventListener("wheel", onWheel, { passive: true });
-    window.addEventListener("touchstart", onTouchStart, { passive: true });
-    window.addEventListener("touchmove", onTouchMove, { passive: true });
-    window.addEventListener("touchend", onTouchEnd, { passive: true });
-    scheduleTracking();
-
-    sectionRefs.current.forEach((section) => {
-      if (section) {
-        loadObserver.observe(section);
-      }
-    });
-    return () => {
-      loadObserver.disconnect();
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", scheduleTracking);
-      window.removeEventListener("wheel", onWheel);
-      window.removeEventListener("touchstart", onTouchStart);
-      window.removeEventListener("touchmove", onTouchMove);
-      window.removeEventListener("touchend", onTouchEnd);
-      if (trackingFrame != null) cancelAnimationFrame(trackingFrame);
-      if (scrollDirectionTimeoutRef.current) clearTimeout(scrollDirectionTimeoutRef.current);
-      if (trackVisibleChunkRef.current === scheduleTracking) trackVisibleChunkRef.current = null;
-    };
-  }, [chunks.length, setTrackedCurrentIndex, viewerMode]);
-
-  useEffect(() => {
-    if (!nextChunk?.html_path) return undefined;
-    const nextIndex = currentIndex + 1;
-    if (prefetchedIndexes.has(nextIndex)) return undefined;
-    const link = document.createElement("link");
-    link.rel = "prefetch";
-    link.as = "document";
-    link.href = nextChunk.html_path;
-    link.onload = () => {
-      setPrefetchedIndexes((previous) => new Set(previous).add(nextIndex));
-    };
-    document.head.appendChild(link);
-    return () => {
-      link.onload = null;
-      link.remove();
-    };
-  }, [currentIndex, nextChunk?.html_path, prefetchedIndexes]);
-
-  useEffect(() => () => {
-    if (navigationTimeoutRef.current) clearTimeout(navigationTimeoutRef.current);
-  }, []);
-
-  useEffect(() => {
-    if (viewerMode !== "single" || !currentChunk?.html_path) return undefined;
     const controller = new AbortController();
-    setLoadState("loading");
-    setErrorMessage("");
-    fetch(currentChunk.html_path, { cache: "force-cache", signal: controller.signal }).then((response) => {
-      if (!response.ok) throw new Error(`Failed to load HTML: ${response.status} ${response.statusText}`);
-    }).catch((error) => {
-      if (error?.name === "AbortError") return;
-      setLoadState("error");
-      setErrorMessage(String(error?.message || error));
-    });
-    return () => controller.abort();
-  }, [currentChunk?.html_path, viewerMode]);
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    setLoadedChunks([]);
+    setStatus("loading-html");
+    setError("");
 
-  function selectChunk(index) {
-    navigateToChunk(index, { closeDrawer: true });
-  }
+    Promise.all(chunks.map((chunk) => loadChunk(chunk, controller.signal)))
+      .then((results) => {
+        if (!controller.signal.aborted) {
+          setLoadedChunks(results);
+          setStatus("loading-assets");
+        }
+      })
+      .catch((loadError) => {
+        if (loadError?.name !== "AbortError") {
+          setError(String(loadError?.message || loadError));
+          setStatus("failed");
+        }
+      });
+
+    return () => controller.abort();
+  }, [chunks]);
 
   useEffect(() => {
-    const onKeyDown = (event) => {
-      if (event.key === "Escape" && drawerOpen) {
+    if (status !== "loading-assets" || loadedChunks.length !== chunks.length) return undefined;
+    const controller = new AbortController();
+    const frame = requestAnimationFrame(() => {
+      const images = Array.from(contentRef.current?.querySelectorAll("img") || []);
+      const fontsReady = document.fonts?.ready || Promise.resolve();
+      Promise.all([...images.map((image) => waitForImage(image, controller.signal)), fontsReady])
+        .then(() => {
+          if (!controller.signal.aborted) setStatus("ready");
+        })
+        .catch((assetError) => {
+          if (assetError?.name !== "AbortError") {
+            setError(String(assetError?.message || assetError));
+            setStatus("failed");
+          }
+        });
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      controller.abort();
+    };
+  }, [chunks.length, loadedChunks, status]);
+
+  useEffect(() => {
+    const blockEarlyPrint = (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p" && status !== "ready") {
         event.preventDefault();
-        setDrawerOpen(false);
-        return;
-      }
-      const target = event.target;
-      const tagName = String(target?.tagName || "").toLowerCase();
-      if (["input", "textarea", "select"].includes(tagName) || target?.isContentEditable) return;
-      if (event.key === "ArrowLeft" && currentIndexRef.current > 0) {
-        event.preventDefault();
-        navigateByOffset(-1);
-      } else if (event.key === "ArrowRight" && currentIndexRef.current < chunks.length - 1) {
-        event.preventDefault();
-        navigateByOffset(1);
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [chunks.length, drawerOpen, navigateByOffset]);
+    window.addEventListener("keydown", blockEarlyPrint);
+    return () => window.removeEventListener("keydown", blockEarlyPrint);
+  }, [status]);
 
-  function goToPage() {
-    navigateToPage(pageJump);
+  if (!chunks.length) {
+    return <main className="p-8 text-slate-600">No HTML chunks found.</main>;
   }
 
-  function changeMode(mode) {
-    setViewerMode(mode);
-    navigateToChunk(currentIndexRef.current, { mode, behavior: "instant" });
-  }
-
-  if (!chunks.length) return <main className="min-h-screen bg-slate-100 p-8 text-slate-600">No HTML chunks found.</main>;
+  const ready = status === "ready";
+  const statusText = status === "loading-html"
+    ? `Loading HTML 0/${chunks.length}`
+    : status === "loading-assets"
+      ? `Loading images ${loadedChunks.length}/${chunks.length}`
+      : status === "failed"
+        ? "Not ready"
+        : "Ready to print";
 
   return (
-    <div className="min-h-screen bg-white">
-      <DrawerOpenButton onClick={() => setDrawerOpen(true)} />
-      <NavigationDrawer
-        documentName={documentName}
-        chunks={chunks}
-        currentIndex={currentIndex}
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        onSelectChunk={selectChunk}
-      />
-      <main className="min-w-0 bg-white">
-        <RenderToolbar
-          toolbarRef={toolbarRef}
-          documentId={documentId}
-          currentChunk={currentChunk}
-          currentIndex={currentIndex}
-          chunks={chunks}
-          viewerMode={viewerMode}
-          pageJump={pageJump}
-          jumpError={jumpError}
-          onModeChange={changeMode}
-          onPageJumpChange={setPageJump}
-          onGoToPage={goToPage}
-          onPrevious={() => navigateByOffset(-1)}
-          onNext={() => navigateByOffset(1)}
-          totalPages={totalPages}
-          progressPercent={progressPercent}
-          focusMode={focusMode}
-          onFocusToggle={() => setFocusMode((value) => !value)}
-        />
-        <div className="reader-surface bg-white">
-          {viewerMode === "continuous" ? (
-            <RenderContinuousDocument
-              chunks={chunks}
-              loadedIndexes={loadedIndexes}
-              sectionRefs={sectionRefs}
-            />
-          ) : (
-            <RenderSingleChunk
-              chunk={currentChunk}
-              loadState={loadState}
-              errorMessage={errorMessage}
-              onLoad={() => setLoadState("ready")}
-              onError={() => {
-                setLoadState("error");
-                setErrorMessage("Iframe load failed.");
-              }}
-            />
-          )}
+    <main className={`print-document ${ready ? "print-document--ready" : "print-document--loading"}`}>
+      <header className="print-toolbar">
+        <div>
+          <strong>{displayName(documentId)}</strong>
+          <span>{chunks.length} chunks · {statusText}</span>
         </div>
-      </main>
-    </div>
+        <button type="button" disabled={!ready} onClick={() => window.print()}>
+          Print / Save as PDF
+        </button>
+      </header>
+
+      {error ? <div className="print-error">{error}</div> : null}
+      {!ready && !error ? <div className="print-loading">{statusText}</div> : null}
+
+      <section ref={contentRef} className="print-content" aria-busy={!ready}>
+        {loadedChunks.map((chunk) => (
+          <article
+            key={chunk.chunk_id}
+            className="print-chunk mineru-html-root"
+            data-chunk-id={chunk.chunk_id}
+            dangerouslySetInnerHTML={{ __html: chunk.preparedHtml }}
+          />
+        ))}
+      </section>
+    </main>
   );
 }

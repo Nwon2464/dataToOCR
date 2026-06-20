@@ -1,0 +1,187 @@
+.goodnotes-export {
+  min-height: 100vh;
+  background: #e8ebef;
+  color: #172033;
+}
+
+.goodnotes-toolbar {
+  position: sticky;
+  z-index: 10;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px max(20px, calc((100vw - 960px) / 2));
+  border-bottom: 1px solid #d7dce3;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+}
+
+.goodnotes-toolbar__identity {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.goodnotes-toolbar__identity strong,
+.goodnotes-toolbar__identity span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.goodnotes-toolbar__identity span {
+  color: #667085;
+  font-size: 0.8rem;
+}
+
+.goodnotes-toolbar button {
+  flex: none;
+  border: 0;
+  border-radius: 9px;
+  background: #172033;
+  color: white;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+  padding: 10px 16px;
+}
+
+.goodnotes-toolbar button:disabled {
+  cursor: wait;
+  opacity: 0.45;
+}
+
+.goodnotes-preview {
+  padding: 40px 20px 72px;
+}
+
+.goodnotes-sheet {
+  box-sizing: border-box;
+  width: min(100%, 210mm);
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 22mm 20mm;
+  background: white;
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.13);
+  font-family: serif;
+  font-size: inherit;
+  line-height: normal;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.goodnotes-sheet img {
+  display: inline;
+  vertical-align: baseline;
+  max-width: 100%;
+  height: auto;
+}
+
+.goodnotes-sheet h1 {
+  font-size: 2em;
+  font-weight: bold;
+}
+
+.goodnotes-sheet h2 {
+  font-size: 1.5em;
+  font-weight: bold;
+}
+
+.goodnotes-sheet h3 {
+  font-size: 1.17em;
+  font-weight: bold;
+}
+
+.goodnotes-sheet h4 {
+  font-size: 1em;
+  font-weight: bold;
+}
+
+.goodnotes-sheet ul {
+  margin-bottom: 1em;
+  list-style: disc;
+}
+
+.goodnotes-sheet ol {
+  margin-bottom: 1em;
+  list-style: decimal;
+}
+
+.goodnotes-sheet a {
+  text-decoration: underline;
+}
+
+.goodnotes-sheet table {
+  max-width: 100%;
+}
+
+.goodnotes-message {
+  width: min(100%, 210mm);
+  margin: 0 auto;
+  padding: 48px;
+  box-sizing: border-box;
+  background: white;
+  color: #667085;
+}
+
+.goodnotes-message--error {
+  color: #b42318;
+}
+
+@page {
+  size: A4;
+  margin: 18mm;
+}
+
+@media print {
+  html,
+  body,
+  .goodnotes-export,
+  .goodnotes-preview {
+    background: white;
+  }
+
+  .goodnotes-toolbar {
+    display: none;
+  }
+
+  .goodnotes-preview {
+    padding: 0;
+  }
+
+  .goodnotes-sheet {
+    width: auto;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    font-size: 12pt;
+  }
+
+  .goodnotes-sheet table,
+  .goodnotes-sheet img,
+  .goodnotes-sheet figure {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
+
+@media (max-width: 640px) {
+  .goodnotes-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .goodnotes-preview {
+    padding: 16px 0 40px;
+  }
+
+  .goodnotes-sheet {
+    min-height: 0;
+    padding: 28px 20px;
+    box-shadow: none;
+  }
+}
