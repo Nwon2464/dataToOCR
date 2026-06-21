@@ -161,9 +161,37 @@ def collect_image_count(page: dict[str, Any]) -> int:
     return count
 
 
+def is_tiny_empty_figure(block: dict[str, Any]) -> bool:
+    block_type = block.get("type")
+    source_type = block.get("source_type")
+    text = (block.get("text") or "").strip()
+    has_image = bool(block.get("image"))
+    bbox = block.get("bbox")
+
+    if block_type != "figure" or source_type != "image":
+        return False
+    if text or has_image:
+        return False
+    if not isinstance(bbox, list) or len(bbox) != 4:
+        return False
+
+    try:
+        width = abs(float(bbox[2]) - float(bbox[0]))
+        height = abs(float(bbox[3]) - float(bbox[1]))
+    except (TypeError, ValueError):
+        return False
+
+    # Small empty figure boxes are usually decorative icons such as arrows,
+    # pins, or margin markers, not OCR/export quality problems.
+    return width <= 80 and height <= 80
+
+
 def collect_empty_text_blocks(page: dict[str, Any]) -> int:
     count = 0
     for block in page.get("blocks", []):
+        if is_tiny_empty_figure(block):
+            continue
+
         block_type = block.get("type")
         text = (block.get("text") or "").strip()
         has_image = bool(block.get("image"))
@@ -260,6 +288,9 @@ def classify_page_quality(page: dict[str, Any]) -> tuple[str, list[str]]:
         reasons.append("very short text without image")
 
     for block in blocks:
+        if is_tiny_empty_figure(block):
+            continue
+
         block_type = block.get("type")
         block_text = (block.get("text") or "").strip()
         block_image = block.get("image")
