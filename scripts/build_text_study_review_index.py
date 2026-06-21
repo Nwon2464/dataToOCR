@@ -245,7 +245,10 @@ def classify_page_quality(page: dict[str, Any]) -> tuple[str, list[str]]:
             reasons.append(f"empty {block_type}")
             break
 
-    if len(side_notes) >= 8:
+    # Many side notes alone usually means the page has rich marginal notes,
+    # not that OCR/export quality is bad. Keep it as an informational signal only
+    # when another quality issue already exists.
+    if len(side_notes) >= 8 and reasons:
         reasons.append("many side notes")
 
     if any(r in reasons for r in ["no text and no image"]):
