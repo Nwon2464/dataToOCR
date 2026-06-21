@@ -108,6 +108,27 @@ a:hover {
   color: #6b7280;
   font-size: 12px;
 }
+.section-title {
+  margin: 30px 0 12px;
+  font-size: 20px;
+  font-weight: 850;
+}
+.bad {
+  color: #b91c1c;
+  font-weight: 800;
+}
+.check {
+  color: #b45309;
+  font-weight: 800;
+}
+.quality-ok {
+  color: #0f766e;
+  font-weight: 800;
+}
+.reason {
+  color: #6b7280;
+  font-size: 12px;
+}
 @media(max-width: 900px) {
   .summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -182,7 +203,95 @@ def summarize_chunk(chunk_dir: Path, root: Path) -> dict[str, Any] | None:
     }
 
 
-def build_html(summaries: list[dict[str, Any]], title: str) -> str:
+def block_text_length(block: dict[str, Any]) -> int:
+    return len((block.get("text") or "").strip())
+
+
+def page_text_length(page: dict[str, Any]) -> int:
+    total = 0
+    for group in ("blocks", "side_notes"):
+        for block in page.get(group, []):
+            total += block_text_length(block)
+    return total
+
+
+def page_image_count(page: dict[str, Any]) -> int:
+    return collect_image_count(page)
+
+
+def classify_page_quality(page: dict[str, Any]) -> tuple[str, list[str]]:
+    blocks = page.get("blocks", [])
+    side_notes = page.get("side_notes", [])
+    text_len = page_text_length(page)
+    images = page_image_count(page)
+    empty_blocks = collect_empty_text_blocks(page)
+
+    reasons: list[str] = []
+
+    if text_len == 0 and images == 0:
+        reasons.append("no text and no image")
+
+    if blocks and empty_blocks >= max(3, len(blocks) // 2):
+        reasons.append("many empty blocks")
+
+    if text_len < 40 and images == 0:
+        reasons.append("very short text without image")
+
+    for block in blocks:
+        block_type = block.get("type")
+        block_text = (block.get("text") or "").strip()
+        block_image = block.get("image")
+        if block_type in {"table", "chart", "table_or_figure", "figure"} and not block_text and not block_image:
+            reasons.append(f"empty {block_type}")
+            break
+
+    if len(side_notes) >= 8:
+        reasons.append("many side notes")
+
+    if any(r in reasons for r in ["no text and no image"]):
+        return "BAD", reasons
+
+    if reasons:
+        return "CHECK", reasons
+
+    return "OK", []
+
+
+def collect_page_quality_rows(summaries: list[dict[str, Any]], root: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+
+    for summary in summaries:
+        chunk_dir = root / summary["name"]
+        normalized_path = chunk_dir / "normalized_pages.json"
+        if not normalized_path.exists():
+            continue
+
+        data = read_json(normalized_path)
+        for page in data.get("pages", []):
+            page_no = page.get("page")
+            if page_no is None:
+                continue
+
+            quality, reasons = classify_page_quality(page)
+            page_html = chunk_dir / f"text_study_page{int(page_no):03d}.html"
+
+            rows.append({
+                "chunk": summary["name"],
+                "page": int(page_no),
+                "quality": quality,
+                "reasons": reasons,
+                "text_len": page_text_length(page),
+                "blocks": len(page.get("blocks", [])),
+                "side_notes": len(page.get("side_notes", [])),
+                "images": page_image_count(page),
+                "empty_blocks": collect_empty_text_blocks(page),
+                "href": page_html.relative_to(root).as_posix() if page_html.exists() else summary["index_href"],
+            })
+
+    return rows
+
+
+def build_html(summaries: list[dict[str, Any]], title: str, root: Path) -> str:
     total_chunks = len(summaries)
     total_pages = sum(s["page_count"] for s in summaries)
     total_blocks = sum(s["block_count"] for s in summaries)
@@ -209,6 +318,71 @@ def build_html(summaries: list[dict[str, Any]], title: str) -> str:
             "</tr>"
         )
 
+    page_quality_rows = collect_page_quality_rows(summaries, root)
+
+    risky_rows = [
+        row for row in page_quality_rows
+        if row["quality"] in {"BAD", "CHECK"}
+    ]
+
+    # Show risk pages first. Limit keeps the index readable for large books.
+    risky_rows = sorted(
+        risky_rows,
+        key=lambda r: (0 if r["quality"] == "BAD" else 1, r["page"])
+    )
+
+    quality_trs = []
+    for r in risky_rows:
+        if r["quality"] == "BAD":
+            q = '<span class="bad">BAD</span>'
+        elif r["quality"] == "CHECK":
+            q = '<span class="check">CHECK</span>'
+        else:
+            q = '<span class="quality-ok">OK</span>'
+
+        reasons = ", ".join(r["reasons"]) if r["reasons"] else "-"
+        quality_trs.append(
+            "<tr>"
+            f'<td>{q}</td>'
+            f'<td><a href="{html.escape(r["href"])}">page {r["page"]:03d}</a></td>'
+            f'<td>{html.escape(r["chunk"])}</td>'
+            f'<td>{r["text_len"]}</td>'
+            f'<td>{r["blocks"]}</td>'
+            f'<td>{r["side_notes"]}</td>'
+            f'<td>{r["images"]}</td>'
+            f'<td>{r["empty_blocks"]}</td>'
+            f'<td><span class="reason">{html.escape(reasons)}</span></td>'
+            "</tr>"
+        )
+
+    if not quality_trs:
+        quality_table = "<p class=\"small\">No risky pages detected.</p>"
+    else:
+        quality_table = f"""
+  <table>
+    <thead>
+      <tr>
+        <th>Quality</th>
+        <th>Page</th>
+        <th>Chunk</th>
+        <th>Text Length</th>
+        <th>Blocks</th>
+        <th>Side Notes</th>
+        <th>Images</th>
+        <th>Empty Blocks</th>
+        <th>Reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      {''.join(quality_trs)}
+    </tbody>
+  </table>
+"""
+
+    bad_count = sum(1 for r in page_quality_rows if r["quality"] == "BAD")
+    check_count = sum(1 for r in page_quality_rows if r["quality"] == "CHECK")
+    ok_count = sum(1 for r in page_quality_rows if r["quality"] == "OK")
+
     return f"""<!doctype html>
 <html lang="ko">
 <head>
@@ -231,6 +405,16 @@ def build_html(summaries: list[dict[str, Any]], title: str) -> str:
     <div class="card"><div class="num">{total_images}</div><div class="label">Images</div></div>
   </section>
 
+  <section class="summary">
+    <div class="card"><div class="num">{ok_count}</div><div class="label">OK Pages</div></div>
+    <div class="card"><div class="num">{check_count}</div><div class="label">CHECK Pages</div></div>
+    <div class="card"><div class="num">{bad_count}</div><div class="label">BAD Pages</div></div>
+    <div class="card"><div class="num">{len(page_quality_rows)}</div><div class="label">Total Pages Scanned</div></div>
+    <div class="card"><div class="num">{len(risky_rows)}</div><div class="label">Risky Rows Listed</div></div>
+  </section>
+
+  <div class="section-title">Chunk Summary</div>
+
   <table>
     <thead>
       <tr>
@@ -252,11 +436,16 @@ def build_html(summaries: list[dict[str, Any]], title: str) -> str:
   <p class="small">
     Empty Text Check is not always an error. Figure/table/image-only pages may be valid.
   </p>
+
+  <div class="section-title">Page Quality Report</div>
+  <p class="small">
+    CHECK/BAD pages should be reviewed manually. They often indicate empty OCR blocks, image-only tables, or weak OCR extraction.
+  </p>
+  {quality_table}
 </main>
 </body>
 </html>
 """
-
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -276,7 +465,7 @@ def main() -> None:
             summaries.append(summary)
 
     output_path = root / "index.html"
-    output_path.write_text(build_html(summaries, args.title), encoding="utf-8")
+    output_path.write_text(build_html(summaries, args.title, root), encoding="utf-8")
 
     print(f"text_study_root : {root}")
     print(f"chunks          : {len(summaries)}")
