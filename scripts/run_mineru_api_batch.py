@@ -24,7 +24,7 @@ from scripts.common.api_paths import (  # noqa: E402
 
 DEFAULT_BASE_URL = "https://mineru.net"
 DEFAULT_MODEL_VERSION = "vlm"
-DEFAULT_LANGUAGE = "en"
+DEFAULT_LANGUAGE = "japan"
 TASK_METADATA_FILENAME = "api_task.json"
 STATUS_METADATA_FILENAME = "api_status.json"
 RAW_ZIP_FILENAME = "raw.zip"

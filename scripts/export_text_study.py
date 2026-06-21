@@ -276,33 +276,45 @@ def extract_item_text(item: dict[str, Any]) -> str:
     return flatten_content(content)
 
 
-def copy_image_for_item(
-    item: dict[str, Any],
-    mineru_dir: Path,
-    assets_dir: Path,
-) -> str | None:
-    content = item.get("content", {})
-    if not isinstance(content, dict):
+def copy_image_for_item(item: dict[str, Any], mineru_dir: Path, assets_dir: Path) -> str | None:
+    """Copy an image referenced by a MinerU item into assets/.
+
+    Some MinerU items may contain a directory-like image path such as
+    "images" instead of a real file path. In that case, skip the image
+    instead of crashing the whole export.
+    """
+    image_value = item.get("image") or item.get("img_path") or item.get("image_path")
+
+    if not image_value or not isinstance(image_value, str):
         return None
 
-    image_source = content.get("image_source", {})
-    if not isinstance(image_source, dict):
+    image_value = image_value.strip()
+    if not image_value:
         return None
 
-    rel_path = image_source.get("path")
-    if not rel_path:
-        return None
+    src = Path(image_value)
+    if not src.is_absolute():
+        src = mineru_dir / src
 
-    src = mineru_dir / rel_path
+    # Fallback: some outputs may only store the basename.
     if not src.exists():
+        fallback = mineru_dir / "images" / Path(image_value).name
+        if fallback.exists():
+            src = fallback
+
+    if not src.exists():
+        print(f"[warn] image not found, skipped: {image_value}")
         return None
 
+    if src.is_dir():
+        print(f"[warn] image path is a directory, skipped: {src}")
+        return None
+
+    assets_dir.mkdir(parents=True, exist_ok=True)
     dest = assets_dir / src.name
-    if not dest.exists():
-        shutil.copy2(src, dest)
+    shutil.copy2(src, dest)
 
     return f"assets/{dest.name}"
-
 
 def classify_item(item: dict[str, Any]) -> str:
     item_type = item.get("type", "unknown")
