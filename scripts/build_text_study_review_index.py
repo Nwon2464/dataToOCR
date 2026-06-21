@@ -11,27 +11,97 @@ from typing import Any
 CSS = """
 body {
   margin: 0;
-  background: #f4f5f7;
+  background:
+    radial-gradient(circle at top, rgba(255, 238, 202, 0.72), transparent 34%),
+    linear-gradient(180deg, #f8f2e7 0%, #f3efe8 18%, #f7f4ed 100%);
   color: #1f2937;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK JP", sans-serif;
+  font-family: Georgia, "Iowan Old Style", "Palatino Linotype", "Noto Serif CJK JP", serif;
 }
 header {
-  background: #fff;
-  border-bottom: 1px solid #d9dde5;
-  padding: 22px 28px;
+  padding: 26px 28px 8px;
 }
 h1 {
   margin: 0 0 6px;
-  font-size: 26px;
+  font-size: 34px;
+  line-height: 1.05;
 }
 .sub {
-  color: #6b7280;
+  color: #695f52;
   font-size: 14px;
 }
 main {
-  padding: 24px 28px 44px;
+  padding: 12px 28px 48px;
   max-width: 1280px;
   margin: 0 auto;
+}
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr);
+  gap: 18px;
+  margin-bottom: 20px;
+}
+.hero-card,
+.section-shell {
+  background: rgba(255, 252, 247, 0.93);
+  border: 1px solid #dccdb7;
+  border-radius: 24px;
+  box-shadow: 0 14px 28px rgba(64, 43, 18, .07);
+}
+.hero-card {
+  padding: 24px;
+}
+.hero-title {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: #9a3412;
+}
+.hero-card h2 {
+  margin: 10px 0 8px;
+  font-size: 30px;
+}
+.hero-card p {
+  margin: 0;
+  color: #5f5649;
+  line-height: 1.65;
+}
+.hero-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid #baa17f;
+  font-weight: 700;
+  text-decoration: none;
+}
+.button.primary {
+  background: #0f766e;
+  color: #fff;
+  border-color: #0f766e;
+}
+.button.secondary {
+  background: #f8f1e4;
+  color: #473a2b;
+}
+.hero-aside {
+  padding: 24px;
+}
+.hero-aside .big {
+  font-size: 42px;
+  font-weight: 800;
+}
+.hero-aside .small {
+  font-size: 14px;
+  color: #6b7280;
 }
 .summary {
   display: grid;
@@ -40,11 +110,11 @@ main {
   margin-bottom: 20px;
 }
 .card {
-  background: #fff;
-  border: 1px solid #d9dde5;
+  background: rgba(255, 252, 247, 0.93);
+  border: 1px solid #dccdb7;
   border-radius: 14px;
   padding: 14px 16px;
-  box-shadow: 0 1px 4px rgba(15,23,42,.05);
+  box-shadow: 0 8px 18px rgba(64, 43, 18, .05);
 }
 .card .num {
   font-size: 24px;
@@ -58,11 +128,11 @@ main {
 table {
   width: 100%;
   border-collapse: collapse;
-  background: #fff;
-  border: 1px solid #d9dde5;
+  background: rgba(255, 252, 247, 0.93);
+  border: 1px solid #dccdb7;
   border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 1px 4px rgba(15,23,42,.05);
+  box-shadow: 0 8px 18px rgba(64, 43, 18, .05);
 }
 th, td {
   border-bottom: 1px solid #e5e7eb;
@@ -72,12 +142,12 @@ th, td {
   vertical-align: top;
 }
 th {
-  background: #f8fafc;
+  background: #f6efe3;
   color: #374151;
   font-weight: 750;
 }
 tr:hover td {
-  background: #f9fbff;
+  background: #fff9ef;
 }
 a {
   color: #2563eb;
@@ -91,8 +161,8 @@ a:hover {
   display: inline-block;
   padding: 3px 8px;
   border-radius: 999px;
-  background: #eaf1ff;
-  color: #2563eb;
+  background: #efe2cc;
+  color: #7c4a16;
   font-size: 12px;
   font-weight: 750;
 }
@@ -109,9 +179,18 @@ a:hover {
   font-size: 12px;
 }
 .section-title {
-  margin: 30px 0 12px;
+  margin: 0 0 12px;
   font-size: 20px;
   font-weight: 850;
+}
+.section-shell {
+  padding: 20px;
+  margin-top: 18px;
+}
+.section-copy {
+  color: #6b7280;
+  font-size: 14px;
+  margin: 0 0 14px;
 }
 .bad {
   color: #b91c1c;
@@ -138,6 +217,9 @@ a:hover {
   font-size: 12px;
 }
 @media(max-width: 900px) {
+  .hero {
+    grid-template-columns: 1fr;
+  }
   .summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -459,9 +541,26 @@ def build_html(summaries: list[dict[str, Any]], title: str, root: Path) -> str:
 <body>
 <header>
   <h1>{html.escape(title)}</h1>
-  <div class="sub">Generated text_study chunks review index</div>
+  <div class="sub">Study landing page with continuous reader first, review report second.</div>
 </header>
 <main>
+  <section class="hero">
+    <div class="hero-card">
+      <div class="hero-title">Primary Study Flow</div>
+      <h2>REG2 Text Study</h2>
+      <p>Open full continuous reader for all {len(page_quality_rows)} pages. Left pane keeps source page visible. Right pane shows cleaned study text in one scroll.</p>
+      <div class="hero-actions">
+        <a class="button primary" href="reader.html">Open Reader</a>
+        <a class="button secondary" href="#page-report">Page Report</a>
+      </div>
+    </div>
+    <aside class="hero-card hero-aside">
+      <div class="big">{len(page_quality_rows)}</div>
+      <div class="small">pages ready for continuous study</div>
+      <p class="section-copy">Existing chunk pages and quality report stay available below for secondary review flow.</p>
+    </aside>
+  </section>
+
   <section class="summary">
     <div class="card"><div class="num">{total_chunks}</div><div class="label">Chunks</div></div>
     <div class="card"><div class="num">{total_pages}</div><div class="label">Pages</div></div>
@@ -480,8 +579,9 @@ def build_html(summaries: list[dict[str, Any]], title: str, root: Path) -> str:
     <div class="card"><div class="num">{len(risky_rows)}</div><div class="label">Risky Rows Listed</div></div>
   </section>
 
+  <section class="section-shell">
   <div class="section-title">Chunk Summary</div>
-
+  <p class="section-copy">Chunk pages remain available for page-by-page review, but they are secondary to reader flow.</p>
   <table>
     <thead>
       <tr>
@@ -503,12 +603,15 @@ def build_html(summaries: list[dict[str, Any]], title: str, root: Path) -> str:
   <p class="small">
     Empty Text Check is not always an error. Figure/table/image-only pages may be valid.
   </p>
+  </section>
 
+  <section class="section-shell" id="page-report">
   <div class="section-title">Page Quality Report</div>
-  <p class="small">
+  <p class="section-copy">
     BAD/CHECK pages should be reviewed manually. IMAGE_ONLY and BLANK pages are separated to reduce false alarms from legitimate scan pages.
   </p>
   {quality_table}
+  </section>
 </main>
 </body>
 </html>
