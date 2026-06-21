@@ -375,6 +375,118 @@ def render_origin_preview(origin_pdf: Path, page_idx: int, dest: Path) -> str | 
         return None
 
 
+
+def find_origin_pdf(mineru_dir: Path) -> Path | None:
+    candidates = sorted(mineru_dir.glob("*_origin.pdf"))
+    if candidates:
+        return candidates[-1]
+    return None
+
+
+def crop_bbox_from_origin_pdf(
+    item: dict[str, Any],
+    mineru_dir: Path,
+    assets_dir: Path,
+    page_index: int,
+    page_size: list[float] | None,
+) -> str | None:
+    """Create a fallback image from the origin PDF using an item's bbox.
+
+    MinerU sometimes emits table/figure blocks with bbox but without a usable
+    image file. This fallback crops the corresponding region from *_origin.pdf
+    so the study HTML still shows the visual content.
+    """
+    bbox = item.get("bbox")
+    if not bbox or not isinstance(bbox, list) or len(bbox) != 4:
+        return None
+
+    origin_pdf = find_origin_pdf(mineru_dir)
+    if origin_pdf is None or not origin_pdf.exists():
+        return None
+
+    try:
+        x0, y0, x1, y1 = [float(v) for v in bbox]
+    except Exception:
+        return None
+
+    if x1 <= x0 or y1 <= y0:
+        return None
+
+    try:
+        import fitz  # PyMuPDF
+
+        doc = fitz.open(origin_pdf)
+
+        if page_index < 0 or page_index >= len(doc):
+            doc.close()
+            return None
+
+        page = doc[page_index]
+        rect = page.rect
+
+        if page_size and len(page_size) == 2:
+            src_w, src_h = float(page_size[0]), float(page_size[1])
+        else:
+            src_w, src_h = rect.width, rect.height
+
+        if src_w <= 0 or src_h <= 0:
+            doc.close()
+            return None
+
+        scale_x = rect.width / src_w
+        scale_y = rect.height / src_h
+
+        # Add small padding so borders/labels are not cut off.
+        pad = 6
+        crop = fitz.Rect(
+            max(0, (x0 - pad) * scale_x),
+            max(0, (y0 - pad) * scale_y),
+            min(rect.width, (x1 + pad) * scale_x),
+            min(rect.height, (y1 + pad) * scale_y),
+        )
+
+        if crop.is_empty or crop.width <= 1 or crop.height <= 1:
+            doc.close()
+            return None
+
+        assets_dir.mkdir(parents=True, exist_ok=True)
+
+        page_no = page_index + 1
+        block_type = item.get("type") or item.get("category") or item.get("source_type") or "block"
+        safe_type = str(block_type).replace("/", "_").replace(" ", "_")
+        dest = assets_dir / f"fallback_p{page_no:03d}_{safe_type}_{int(x0)}_{int(y0)}.png"
+
+        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), clip=crop, alpha=False)
+        pix.save(dest)
+        doc.close()
+
+        print(f"[warn] fallback crop created: {dest}")
+        return f"assets/{dest.name}"
+
+    except Exception as exc:
+        print(f"[warn] fallback crop failed: {exc}")
+        return None
+
+
+def should_try_bbox_fallback(item: dict[str, Any], image: str | None) -> bool:
+    if image:
+        return False
+
+    block_type = item.get("type") or item.get("category") or item.get("source_type")
+    if block_type not in {"table", "chart", "figure", "table_or_figure"}:
+        return False
+
+    text_value = item.get("text")
+    if not isinstance(text_value, str):
+        text_value = item.get("content")
+
+    if isinstance(text_value, str) and text_value.strip():
+        return False
+
+    bbox = item.get("bbox")
+    return isinstance(bbox, list) and len(bbox) == 4
+
+
 def normalize_page(
     page_items: list[dict[str, Any]],
     page_idx: int,
@@ -387,10 +499,22 @@ def normalize_page(
     side_notes: list[dict[str, Any]] = []
     meta: list[dict[str, Any]] = []
 
+    page_size = None
+    if page_items:
+        page_size = page_items[0].get("page_size")
+
     for i, item in enumerate(page_items):
         block_type = classify_item(item)
         text = extract_item_text(item)
         image = copy_image_for_item(item, mineru_dir, assets_dir)
+        if should_try_bbox_fallback(item, image):
+            image = crop_bbox_from_origin_pdf(
+                item=item,
+                mineru_dir=mineru_dir,
+                assets_dir=assets_dir,
+                page_index=page_idx,
+                page_size=page_size,
+            )
 
         content = item.get("content", {})
         level = None
