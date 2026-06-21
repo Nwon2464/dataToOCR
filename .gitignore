@@ -77,3 +77,7 @@ exports/
 !exports/goodnotes/final/
 !exports/goodnotes/final/.gitkeep
 EOF*.bak
+
+# Generated 10-page PDF chunks
+data/chunks_10/*
+!data/chunks_10/.gitkeep
