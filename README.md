@@ -529,3 +529,33 @@ python3 scripts/clear_generated_data.py --yes
 ```bash
 ls -lh exports/goodnotes/final/
 ```
+
+-----------------------------------------------------------------------------
+
+
+## Roadmap
+
+### v1.1 Searchable Scan PDF
+
+Status: completed as an experiment.
+
+This version adds an invisible OCR text layer to the original scanned PDF.  
+It works for Japanese/English search, but text selection in GoodNotes is not accurate enough for study workflows.
+
+See:
+
+```text
+docs/v1.1-searchable-scan-pdf.md
+v1.2 Text Study Exporter
+
+Current development target.
+
+MinerU API output will be converted into a content-first study format:
+
+content_list_v2.json
+→ normalized JSON
+→ page HTML
+→ page Markdown
+→ later text_study PDF
+
+The goal is to make text easy to select, copy, and use for AI-based study.

@@ -76,4 +76,4 @@ exports/
 !exports/goodnotes/raw/.gitkeep
 !exports/goodnotes/final/
 !exports/goodnotes/final/.gitkeep
-EOF
+EOF*.bak
