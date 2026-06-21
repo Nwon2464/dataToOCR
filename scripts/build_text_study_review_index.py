@@ -35,7 +35,7 @@ main {
 }
 .summary {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 20px;
 }
@@ -123,6 +123,14 @@ a:hover {
 }
 .quality-ok {
   color: #0f766e;
+  font-weight: 800;
+}
+.blank {
+  color: #64748b;
+  font-weight: 800;
+}
+.image-only {
+  color: #7c3aed;
   font-weight: 800;
 }
 .reason {
@@ -222,11 +230,25 @@ def page_image_count(page: dict[str, Any]) -> int:
 def classify_page_quality(page: dict[str, Any]) -> tuple[str, list[str]]:
     blocks = page.get("blocks", [])
     side_notes = page.get("side_notes", [])
+    meta = page.get("meta", [])
     text_len = page_text_length(page)
     images = page_image_count(page)
     empty_blocks = collect_empty_text_blocks(page)
 
     reasons: list[str] = []
+
+    # A page with no real content blocks, notes, text, or images is usually a
+    # real blank source page. Some MinerU outputs still include metadata-only
+    # records for such pages, so metadata alone should not make the page BAD.
+    if text_len == 0 and images == 0 and not blocks and not side_notes:
+        if meta:
+            return "BLANK", ["metadata only"]
+        return "BLANK", ["no content blocks"]
+
+    # A page with no extracted text but at least one image/preview is usually
+    # image-only content. It should be reviewed less urgently than BAD.
+    if text_len == 0 and images > 0:
+        return "IMAGE_ONLY", ["image without extracted text"]
 
     if text_len == 0 and images == 0:
         reasons.append("no text and no image")
@@ -325,13 +347,16 @@ def build_html(summaries: list[dict[str, Any]], title: str, root: Path) -> str:
 
     risky_rows = [
         row for row in page_quality_rows
-        if row["quality"] in {"BAD", "CHECK"}
+        if row["quality"] in {"BAD", "CHECK", "BLANK", "IMAGE_ONLY"}
     ]
 
     # Show risk pages first. Limit keeps the index readable for large books.
     risky_rows = sorted(
         risky_rows,
-        key=lambda r: (0 if r["quality"] == "BAD" else 1, r["page"])
+        key=lambda r: (
+            {"BAD": 0, "CHECK": 1, "IMAGE_ONLY": 2, "BLANK": 3}.get(r["quality"], 4),
+            r["page"],
+        )
     )
 
     quality_trs = []
@@ -340,6 +365,10 @@ def build_html(summaries: list[dict[str, Any]], title: str, root: Path) -> str:
             q = '<span class="bad">BAD</span>'
         elif r["quality"] == "CHECK":
             q = '<span class="check">CHECK</span>'
+        elif r["quality"] == "IMAGE_ONLY":
+            q = '<span class="image-only">IMAGE_ONLY</span>'
+        elif r["quality"] == "BLANK":
+            q = '<span class="blank">BLANK</span>'
         else:
             q = '<span class="quality-ok">OK</span>'
 
@@ -384,6 +413,8 @@ def build_html(summaries: list[dict[str, Any]], title: str, root: Path) -> str:
 
     bad_count = sum(1 for r in page_quality_rows if r["quality"] == "BAD")
     check_count = sum(1 for r in page_quality_rows if r["quality"] == "CHECK")
+    blank_count = sum(1 for r in page_quality_rows if r["quality"] == "BLANK")
+    image_only_count = sum(1 for r in page_quality_rows if r["quality"] == "IMAGE_ONLY")
     ok_count = sum(1 for r in page_quality_rows if r["quality"] == "OK")
 
     return f"""<!doctype html>
@@ -412,6 +443,8 @@ def build_html(summaries: list[dict[str, Any]], title: str, root: Path) -> str:
     <div class="card"><div class="num">{ok_count}</div><div class="label">OK Pages</div></div>
     <div class="card"><div class="num">{check_count}</div><div class="label">CHECK Pages</div></div>
     <div class="card"><div class="num">{bad_count}</div><div class="label">BAD Pages</div></div>
+    <div class="card"><div class="num">{image_only_count}</div><div class="label">IMAGE_ONLY Pages</div></div>
+    <div class="card"><div class="num">{blank_count}</div><div class="label">BLANK Pages</div></div>
     <div class="card"><div class="num">{len(page_quality_rows)}</div><div class="label">Total Pages Scanned</div></div>
     <div class="card"><div class="num">{len(risky_rows)}</div><div class="label">Risky Rows Listed</div></div>
   </section>
@@ -442,7 +475,7 @@ def build_html(summaries: list[dict[str, Any]], title: str, root: Path) -> str:
 
   <div class="section-title">Page Quality Report</div>
   <p class="small">
-    CHECK/BAD pages should be reviewed manually. They often indicate empty OCR blocks, image-only tables, or weak OCR extraction.
+    BAD/CHECK pages should be reviewed manually. IMAGE_ONLY and BLANK pages are separated to reduce false alarms from legitimate scan pages.
   </p>
   {quality_table}
 </main>
