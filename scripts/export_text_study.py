@@ -330,6 +330,9 @@ def classify_item(item: dict[str, Any]) -> str:
     if item_type == "table":
         return "table"
 
+    if item_type == "chart":
+        return "chart"
+
     if item_type == "image":
         sub_type = str(item.get("sub_type", "")).lower()
         text = extract_item_text(item)
@@ -437,7 +440,7 @@ def block_to_markdown(block: dict[str, Any]) -> str:
             "> " + line for line in text.splitlines()
         ) + "\n"
 
-    if block_type in {"table", "table_or_figure"}:
+    if block_type in {"table", "table_or_figure", "chart"}:
         out = "### 表 / 図表\n\n"
         if text:
             out += f"```text\n{text}\n```\n"
@@ -509,10 +512,11 @@ def html_block(block: dict[str, Any]) -> str:
         body = escaped.replace("\n", "<br>")
         return f'<div class="block side"><span class="block-title">補足 / Side Note</span><p>{body}</p></div>'
 
-    if block_type in {"table", "table_or_figure"}:
+    if block_type in {"table", "table_or_figure", "chart"}:
         body = f"<pre>{escaped}</pre>" if text else ""
         img = f'<img src="{html.escape(block["image"])}" />' if block.get("image") else ""
-        return f'<div class="block figure"><span class="block-title">表 / 図表</span>{body}{img}</div>'
+        label = "表 / Chart" if block_type == "chart" else "表 / 図表"
+        return f'<div class="block figure"><span class="block-title">{label}</span>{body}{img}</div>'
 
     if block_type == "figure":
         body = f"<pre>{escaped}</pre>" if text else ""
