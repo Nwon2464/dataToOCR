@@ -81,3 +81,8 @@ EOF*.bak
 # Generated 10-page PDF chunks
 data/chunks_10/*
 !data/chunks_10/.gitkeep
+.venv_paddleocr27/
+_review_*/
+_review_*.zip
+scripts/*.bak_*
+*.pyc

@@ -5,6 +5,7 @@ import argparse
 import base64
 import html
 import json
+from html.parser import HTMLParser
 import shutil
 from pathlib import Path
 from typing import Any
@@ -115,6 +116,44 @@ h3 {
   margin:22px 0 10px;
 }
 p { margin:12px 0; }
+
+.study-table-wrap {
+  overflow-x: auto;
+  margin-top: 0.4rem;
+}
+
+.study-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.study-table td {
+  border: 1px solid #d7dce2;
+  padding: 0.38rem 0.5rem;
+  vertical-align: top;
+}
+
+.study-table tr:nth-child(odd) td {
+  background: #fafafa;
+}
+
+.source-crop {
+  margin-top: 0.5rem;
+}
+
+.source-crop summary {
+  cursor: pointer;
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.source-crop img {
+  max-width: 100%;
+  margin-top: 0.4rem;
+}
+
 .block {
   margin:15px 0;
   padding:15px 18px;
@@ -237,6 +276,125 @@ def flatten_content(obj: Any) -> str:
     return "\n".join(cleaned).strip()
 
 
+
+class SimpleTableHTMLParser(HTMLParser):
+    """Extract table rows from MinerU content.html without changing cell text."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rows: list[list[str]] = []
+        self._row: list[str] | None = None
+        self._cell: list[str] | None = None
+        self._in_cell = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.lower()
+        if tag == "tr":
+            self._row = []
+        elif tag in {"td", "th"}:
+            self._cell = []
+            self._in_cell = True
+
+    def handle_data(self, data: str) -> None:
+        if self._in_cell and self._cell is not None:
+            self._cell.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if tag in {"td", "th"} and self._cell is not None:
+            text = " ".join("".join(self._cell).split())
+            if self._row is not None:
+                self._row.append(text)
+            self._cell = None
+            self._in_cell = False
+        elif tag == "tr":
+            if self._row is not None and any(cell.strip() for cell in self._row):
+                self.rows.append(self._row)
+            self._row = None
+
+
+def extract_table_html(item: dict[str, Any]) -> str:
+    """Return MinerU table HTML if available.
+
+    This is intentionally generic:
+    - preferred: item["content"]["html"]
+    - fallback: item["html"]
+    - no OCR text correction is performed
+    """
+    content = item.get("content")
+    if isinstance(content, dict):
+        value = content.get("html")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    value = item.get("html")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+
+    return ""
+
+
+def table_html_to_rows(table_html: str) -> list[list[str]]:
+    if not table_html:
+        return []
+
+    parser = SimpleTableHTMLParser()
+    try:
+        parser.feed(table_html)
+    except Exception:
+        return []
+
+    return parser.rows
+
+
+def rows_to_plain_text(rows: list[list[str]]) -> str:
+    """Represent table rows as TSV-like text for readable plain text fallback."""
+    lines: list[str] = []
+    for row in rows:
+        cells = [cell.strip() for cell in row]
+        if any(cells):
+            lines.append("\t".join(cells))
+    return "\n".join(lines).strip()
+
+
+def extract_table_metadata(item: dict[str, Any]) -> dict[str, Any]:
+    """Extract generic table metadata from MinerU table blocks.
+
+    Important:
+    - raw HTML is preserved
+    - rows are extracted structurally
+    - no accounting/tax content is rewritten
+    """
+    content = item.get("content")
+    if not isinstance(content, dict):
+        content = {}
+
+    table_html = extract_table_html(item)
+    rows = table_html_to_rows(table_html)
+    text_from_rows = rows_to_plain_text(rows)
+    fallback_text = flatten_content(content)
+
+    meta: dict[str, Any] = {}
+
+    if table_html:
+        meta["html"] = table_html
+    if rows:
+        meta["rows"] = rows
+    if isinstance(content.get("table_type"), str):
+        meta["table_type"] = content.get("table_type")
+    if isinstance(content.get("table_nest_level"), int):
+        meta["table_nest_level"] = content.get("table_nest_level")
+
+    image_source = content.get("image_source")
+    if isinstance(image_source, dict):
+        path = image_source.get("path")
+        if isinstance(path, str) and path.strip():
+            meta["image_source"] = path.strip()
+
+    meta["text"] = text_from_rows or fallback_text
+    return meta
+
+
 def extract_item_text(item: dict[str, Any]) -> str:
     item_type = item.get("type")
     content = item.get("content", {})
@@ -271,7 +429,7 @@ def extract_item_text(item: dict[str, Any]) -> str:
         return ""
 
     if item_type == "table":
-        return flatten_content(content)
+        return str(extract_table_metadata(item).get("text") or "").strip()
 
     return flatten_content(content)
 
@@ -536,6 +694,14 @@ def normalize_page(
         if image:
             block["image"] = image
 
+        if item.get("type") == "table":
+            table_meta = extract_table_metadata(item)
+            for key in ("html", "rows", "table_type", "table_nest_level", "image_source"):
+                if key in table_meta:
+                    block[key] = table_meta[key]
+            # Keep block["text"] as the plain-text fallback derived from rows.
+            block["text"] = str(table_meta.get("text") or block.get("text") or "").strip()
+
         if block_type == "meta":
             meta.append(block)
         elif block_type == "side_note":
@@ -616,6 +782,43 @@ def page_to_markdown(page: dict[str, Any]) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+
+def render_table_rows_for_index(rows: list[list[str]]) -> str:
+    """Render normalized table rows in export_text_study preview index.html.
+
+    This is display-only. It does not rewrite OCR/table cell content.
+    """
+    if not isinstance(rows, list) or not rows:
+        return ""
+
+    rendered_rows: list[str] = []
+
+    for row in rows:
+        if not isinstance(row, list):
+            continue
+
+        cells: list[str] = []
+        for cell in row:
+            cell_text = " ".join(str(cell).split())
+            cells.append(f"<td>{html.escape(cell_text)}</td>")
+
+        if cells:
+            rendered_rows.append("<tr>" + "".join(cells) + "</tr>")
+
+    if not rendered_rows:
+        return ""
+
+    return (
+        '<div class="study-table-wrap">'
+        '<table class="study-table">'
+        '<tbody>'
+        + "".join(rendered_rows)
+        + '</tbody>'
+        '</table>'
+        '</div>'
+    )
+
+
 def html_block(block: dict[str, Any]) -> str:
     block_type = block.get("type")
     text = str(block.get("text") or "").strip()
@@ -649,10 +852,21 @@ def html_block(block: dict[str, Any]) -> str:
         return f'<div class="block side"><span class="block-title">補足 / Side Note</span><p>{body}</p></div>'
 
     if block_type in {"table", "table_or_figure", "chart"}:
-        body = f"<pre>{escaped}</pre>" if text else ""
-        img = f'<img src="{html.escape(block["image"])}" />' if block.get("image") else ""
         label = "表 / Chart" if block_type == "chart" else "表 / 図表"
-        return f'<div class="block figure"><span class="block-title">{label}</span>{body}{img}</div>'
+
+        rows_html = render_table_rows_for_index(block.get("rows") or [])
+        body = rows_html or (f"<pre>{escaped}</pre>" if text else "")
+
+        img = ""
+        if block.get("image"):
+            img = (
+                '<details class="source-crop">'
+                '<summary>source crop</summary>'
+                f'<img src="{html.escape(block["image"])}" />'
+                '</details>'
+            )
+
+        return f'<div class="block figure table-block"><span class="block-title">{label}</span>{body}{img}</div>'
 
     if block_type == "figure":
         body = f"<pre>{escaped}</pre>" if text else ""

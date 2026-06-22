@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from build_text_study_review_index import classify_page_quality, is_tiny_empty_figure
+import re
 
 
 CSS = """
@@ -247,6 +248,481 @@ main {
   color: var(--muted);
   font-size: 14px;
 }
+
+/* Natural study text rendering: type labels are internal, not learner-facing. */
+.text-pane {
+  padding: 22px 24px 28px;
+}
+
+.text-pane .study-block {
+  margin-top: 0;
+}
+
+.text-pane .study-block + .study-block {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.text-pane h2 {
+  font-size: 26px;
+  line-height: 1.45;
+  margin: 24px 0 12px;
+}
+
+.text-pane h3 {
+  font-size: 21px;
+  line-height: 1.5;
+  margin: 22px 0 10px;
+}
+
+.text-pane h4 {
+  font-size: 18px;
+  line-height: 1.5;
+  margin: 18px 0 8px;
+}
+
+.text-pane p {
+  margin: 12px 0;
+  font-size: 17px;
+  line-height: 1.9;
+  color: #1f2937;
+}
+
+.text-pane ul,
+.text-pane ol {
+  margin: 12px 0 16px 24px;
+  padding-left: 22px;
+}
+
+.text-pane li {
+  margin: 6px 0;
+  line-height: 1.75;
+}
+
+.text-pane pre {
+  white-space: pre-wrap;
+  background: #f8f3ea;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  line-height: 1.65;
+}
+
+.text-pane .study-table-wrap {
+  overflow-x: auto;
+  margin: 16px 0;
+}
+
+.text-pane .study-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.text-pane .study-table td,
+.text-pane .study-table th {
+  border: 1px solid #d7cab9;
+  padding: 8px 10px;
+  vertical-align: top;
+}
+
+.text-pane .study-table tr:nth-child(odd) td {
+  background: #fbf7ef;
+}
+
+.text-pane .note,
+.text-pane .side-note {
+  margin: 16px 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #faf2dd;
+  border: 1px solid #e4d4ae;
+  color: #4b5563;
+}
+
+.text-pane figure {
+  margin: 16px 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #f8f3ea;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+
+/* In comparison mode, keep right text pane aligned to the source page height. */
+.page-pane {
+  min-height: 0;
+}
+
+.page-pane.text-pane-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.page-pane.text-pane-wrap .text-pane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+body[data-view="both"] .page-pane.text-pane-wrap,
+body[data-view="source"] .page-pane.text-pane-wrap {
+  height: var(--source-pane-height, auto);
+}
+
+body[data-view="text"] .page-pane.text-pane-wrap {
+  height: auto !important;
+}
+
+body[data-view="text"] .page-pane.text-pane-wrap .text-pane {
+  overflow-y: visible;
+}
+
+
+.copy-block {
+  position: relative;
+  margin: 0;
+  padding-right: 42px;
+}
+
+.copy-block:hover .copy-block-button,
+.copy-block:focus-within .copy-block-button {
+  opacity: 1;
+}
+
+.copy-block-button {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  opacity: 0.18;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fffaf2;
+  color: #5d4a30;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.12s ease, background 0.12s ease;
+}
+
+.copy-block-button:hover {
+  opacity: 1;
+  background: #f1e6d4;
+}
+
+.copy-block-button.copied {
+  opacity: 1;
+  background: #dcfce7;
+  color: #166534;
+  border-color: #86efac;
+}
+
+body[data-view="text"] .copy-block-button {
+  opacity: 0.28;
+}
+
+
+/* Copy icon UI override */
+.copy-block {
+  position: relative;
+  padding: 3px 42px 3px 8px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.copy-block.copy-hover {
+  background: #fff7e6;
+  border-color: #ead7b7;
+}
+
+.copy-block-button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.24;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fffaf2;
+  color: #5d4a30;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  transition: opacity 0.12s ease, background 0.12s ease, transform 0.12s ease;
+}
+
+.copy-block:hover .copy-block-button,
+.copy-block:focus-within .copy-block-button {
+  opacity: 1;
+}
+
+.copy-block-button:hover {
+  opacity: 1;
+  background: #f1e6d4;
+  transform: translateY(-1px);
+}
+
+.copy-block-button.copied {
+  opacity: 1;
+  background: #dcfce7;
+  color: #166534;
+  border-color: #86efac;
+}
+
+
+/* Highlight whole copy block on block hover, not only icon hover. */
+.copy-block:hover {
+  background: #fff7e6;
+  border-color: #ead7b7;
+}
+
+.copy-block:hover .copy-block-button {
+  opacity: 1;
+}
+
+
+
+
+/* Header UI polish */
+.control.current,
+#current-page {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  min-height: 38px;
+  box-sizing: border-box;
+}
+
+.study-home-icon {
+  position: fixed;
+  top: 18px;
+  left: 18px;
+  z-index: 1000;
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 250, 242, 0.94);
+  color: #5d4a30;
+  box-shadow: 0 10px 28px rgba(68, 49, 26, 0.12);
+  text-decoration: none;
+  transition: transform 0.14s ease, background 0.14s ease, box-shadow 0.14s ease;
+}
+
+.study-home-icon:hover {
+  background: #f1e6d4;
+  transform: translateY(-1px);
+  box-shadow: 0 14px 34px rgba(68, 49, 26, 0.18);
+}
+
+.study-home-icon svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.topbar-inner {
+  padding-left: 54px;
+}
+
+
+/* iPad/tablet layout: keep Both view as two panes. */
+@media (max-width: 980px) {
+  body[data-view="both"] .page {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  body[data-view="both"] .page-pane {
+    min-width: 0;
+  }
+
+  body[data-view="both"] .preview-wrap {
+    padding: 12px;
+  }
+
+  body[data-view="both"] .text-pane {
+    padding: 14px 14px 18px;
+  }
+
+  body[data-view="both"] .pane-title {
+    font-size: 13px;
+  }
+
+  body[data-view="both"] .pane-meta {
+    font-size: 11px;
+  }
+
+  body[data-view="both"] .text-pane p {
+    font-size: 15px;
+    line-height: 1.75;
+  }
+
+  body[data-view="both"] .text-pane h2 {
+    font-size: 21px;
+  }
+
+  body[data-view="both"] .text-pane h3 {
+    font-size: 18px;
+  }
+
+  body[data-view="both"] .copy-block {
+    padding-right: 34px;
+  }
+
+  body[data-view="both"] .copy-block-button {
+    width: 24px;
+    height: 24px;
+    font-size: 13px;
+  }
+}
+
+/* Very small phones: allow stacking because two panes become unusable. */
+@media (max-width: 640px) {
+  body[data-view="both"] .page {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+
+.topbar-inner {
+  max-width: min(1560px, calc(100vw - 28px));
+}
+
+@media (max-width: 980px) {
+  main,
+  .reader,
+  .content,
+  .pages,
+  .page,
+  .topbar-inner {
+    max-width: calc(100vw - 18px);
+  }
+}
+
+
+
+
+/* Safe pane spacing adjustment */
+body[data-view="both"] .page {
+  gap: 14px;
+}
+
+@media (max-width: 980px) {
+  body[data-view="both"] .page {
+    gap: 8px;
+  }
+}
+
+
+
+
+/* Safe compact reader spacing */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+.topbar,
+main {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.page {
+  max-width: none;
+}
+
+body[data-view="both"] .page {
+  gap: 10px;
+}
+
+body[data-view="both"] .page-pane,
+body[data-view="both"] .source-pane,
+body[data-view="both"] .text-pane,
+body[data-view="both"] .preview-wrap {
+  min-width: 0;
+}
+
+@media (max-width: 980px) {
+  .topbar,
+  main {
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+
+  body[data-view="both"] .page {
+    gap: 6px;
+  }
+}
+
+
+/* Smaller side note text */
+.side-note {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.side-note p {
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+body[data-view="both"] .side-note,
+body[data-view="both"] .side-note p {
+  font-size: 12.5px;
+}
+
+
+/* Compact consecutive side notes */
+.side-note {
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.side-note + .side-note {
+  margin-top: -2px;
+}
+
+.copy-block:has(.side-note) {
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+.copy-block:has(.side-note) + .copy-block:has(.side-note) {
+  margin-top: -4px;
+}
+
+
+/* Smaller side note padding */
+.side-note {
+  padding: 6px 8px;
+}
+
+body[data-view="both"] .side-note {
+  padding: 5px 7px;
+}
+
 body[data-view="source"] .page {
   grid-template-columns: 1fr;
 }
@@ -283,7 +759,7 @@ JS = """
   const viewButtons = Array.from(document.querySelectorAll('[data-view-mode]'));
   let activeIndex = 0;
 
-  const updateNav = () => {
+  let updateNav = () => {
     const page = pages[activeIndex];
     if (!page) return;
     const label = page.dataset.pageLabel;
@@ -308,11 +784,48 @@ JS = """
   prev.addEventListener('click', () => goToIndex(activeIndex - 1));
   next.addEventListener('click', () => goToIndex(activeIndex + 1));
 
+  const getPageClosestToViewportCenter = () => {
+    if (!pages.length) return null;
+
+    const viewportCenter = window.innerHeight / 2;
+    let bestPage = pages[0];
+    let bestDistance = Infinity;
+
+    pages.forEach((page) => {
+      const rect = page.getBoundingClientRect();
+      const pageCenter = rect.top + rect.height / 2;
+      const distance = Math.abs(pageCenter - viewportCenter);
+
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestPage = page;
+      }
+    });
+
+    return bestPage;
+  };
+
+  const restorePageAfterViewSwitch = (page) => {
+    if (!page) return;
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        page.scrollIntoView({ behavior: 'auto', block: 'start' });
+        syncPaneHeights();
+      });
+    });
+  };
+
   viewButtons.forEach((button) => {
     button.addEventListener('click', () => {
+      const pageBeforeSwitch = getPageClosestToViewportCenter();
       const mode = button.dataset.viewMode;
+
       document.body.dataset.view = mode;
       viewButtons.forEach((item) => item.classList.toggle('active', item === button));
+
+      requestAnimationFrame(syncPaneHeights);
+      restorePageAfterViewSwitch(pageBeforeSwitch);
     });
   });
 
@@ -329,7 +842,124 @@ JS = """
   }, { rootMargin: '-20% 0px -55% 0px', threshold: [0.2, 0.45, 0.7] });
 
   pages.forEach((page) => observer.observe(page));
+
+  const syncPaneHeights = () => {
+    const mode = document.body.dataset.view || 'both';
+
+    pages.forEach((page) => {
+      const sourcePane = page.querySelector('.source-pane');
+      const textPaneWrap = page.querySelector('.text-pane-wrap');
+
+      if (!sourcePane || !textPaneWrap) return;
+
+      if (mode === 'text') {
+        textPaneWrap.style.removeProperty('--source-pane-height');
+        return;
+      }
+
+      const height = sourcePane.getBoundingClientRect().height;
+
+      if (height > 0) {
+        textPaneWrap.style.setProperty('--source-pane-height', `${Math.ceil(height)}px`);
+      }
+    });
+  };
+
+  window.addEventListener('resize', syncPaneHeights);
+
+  document.querySelectorAll('.source-pane img').forEach((img) => {
+    if (img.complete) return;
+    img.addEventListener('load', syncPaneHeights, { once: true });
+  });
+
+  const originalUpdateNav = updateNav;
+  updateNav = () => {
+    originalUpdateNav();
+    syncPaneHeights();
+  };
+
+  syncPaneHeights();
+
   updateNav();
+  document.addEventListener('mouseover', (event) => {
+    const button = event.target.closest('[data-copy-block]');
+    if (!button) return;
+
+    const block = button.closest('.copy-block');
+    if (block) block.classList.add('copy-hover');
+  });
+
+  document.addEventListener('mouseout', (event) => {
+    const button = event.target.closest('[data-copy-block]');
+    if (!button) return;
+
+    const block = button.closest('.copy-block');
+    if (block) block.classList.remove('copy-hover');
+  });
+
+
+  const showCopyToast = (message = "Copied") => {};
+
+  const normalizeBlockCopyText = (text) => {
+    return String(text || '')
+      .split(/\\r?\\n/)
+      .map((line) => line.trimEnd())
+      .join('\\n')
+      .replace(/\\n{3,}/g, '\\n\\n')
+      .trim();
+  };
+
+  const copyBlockTextToClipboard = async (text) => {
+    const normalized = normalizeBlockCopyText(text);
+    if (!normalized) return false;
+
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(normalized);
+      return true;
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = normalized;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+
+    const ok = document.execCommand('copy');
+    textarea.remove();
+    return ok;
+  };
+
+  document.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-copy-block]');
+    if (!button) return;
+
+    const block = button.closest('.copy-block');
+    if (!block) return;
+
+    const text = block.dataset.copyText || '';
+
+    try {
+      const ok = await copyBlockTextToClipboard(text);
+      if (!ok) {
+        return;
+      }
+
+      button.textContent = '✓';
+      button.classList.add('copied');
+
+      window.setTimeout(() => {
+        button.textContent = '⧉';
+        button.classList.remove('copied');
+      }, 2000);
+    } catch (error) {
+    }
+  });
+
+
 })();
 """
 
@@ -457,7 +1087,153 @@ def render_media(image_path: str, alt_text: str) -> str:
     )
 
 
+def split_natural_list_items(text: str) -> list[str]:
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+    if len(lines) >= 2:
+        return lines
+
+    # Preserve original numbering. Do not rewrite tax/accounting text.
+    parts = re.split(r"(?=(?:\d+[）\)]|[a-zA-Z][）\)]))", str(text or ""))
+    parts = [part.strip() for part in parts if part.strip()]
+    return parts if len(parts) >= 2 else lines
+
+
+def looks_like_journal_or_formula(text: str) -> bool:
+    if "\n" not in text:
+        return False
+
+    markers = ["(Dr)", "(Cr)", " Dr", " Cr", "$", "×××", "\t"]
+    return any(marker in text for marker in markers)
+
+
+def render_table_rows_natural(rows: Any) -> str:
+    if not isinstance(rows, list) or not rows:
+        return ""
+
+    rendered_rows: list[str] = []
+
+    for row in rows:
+        if not isinstance(row, list):
+            continue
+
+        cells = []
+        for cell in row:
+            cell_text = clean_text(cell)
+            cells.append(f"<td>{html.escape(cell_text)}</td>")
+
+        if cells:
+            rendered_rows.append("<tr>" + "".join(cells) + "</tr>")
+
+    if not rendered_rows:
+        return ""
+
+    return (
+        '<div class="study-table-wrap">'
+        '<table class="study-table">'
+        '<tbody>'
+        + "".join(rendered_rows)
+        + '</tbody>'
+        '</table>'
+        '</div>'
+    )
+
+
+
+def looks_like_ocr_math_garbage(text: str) -> bool:
+    """Detect obvious OCR garbage from formula/diagram regions."""
+    text = str(text or "").strip()
+    if not text:
+        return False
+
+    math_tokens = [
+        "\\begin{array}",
+        "\\end{array}",
+        "\\lVert",
+        "\\rVert",
+        "\\mathcal",
+        "\\lesssim",
+        "\\equiv",
+        "\\otimes",
+        "\\sharp",
+        "\\Xi",
+        "\\Psi",
+        "\\varphi",
+        "\\lambda",
+    ]
+
+    hits = sum(1 for token in math_tokens if token in text)
+    backslash_count = text.count("\\")
+
+    # Long broken formula block.
+    if len(text) >= 120 and hits >= 2:
+        return True
+
+    # Very backslash-heavy block.
+    if len(text) >= 120 and backslash_count >= 8:
+        return True
+
+    # Short residue after a larger broken formula block.
+    # Example: ( \\lambda \\equiv \\ " , 7 2 )
+    if "\\lambda" in text or "\\equiv" in text:
+        return True
+
+    # Isolated LaTeX/math-looking residue with almost no normal language.
+    normal_letters = re.findall(r"[A-Za-zぁ-んァ-ン一-龥]", text)
+    if backslash_count >= 2 and len(normal_letters) <= 4:
+        return True
+
+    return False
+
+
+def looks_like_figure_ocr_dump(text: str) -> bool:
+    """Detect long OCR dumps from source figures/forms.
+
+    These are usually not useful as right-pane study text because the source
+    image is already shown on the left.
+    """
+    text = str(text or "").strip()
+    if not text:
+        return False
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    if len(text) < 600:
+        return False
+
+    form_markers = [
+        "Filing Status",
+        "Form 1040",
+        "social security number",
+        "Standard Deduction",
+        "Dependents",
+        "Wages, salaries",
+        "Taxable interest",
+        "Qualified dividends",
+        "Taxable income",
+        "Schedule",
+    ]
+
+    marker_hits = sum(1 for marker in form_markers if marker.lower() in text.lower())
+
+    # A long OCR dump from a tax form or source figure.
+    if len(lines) >= 20 and marker_hits >= 3:
+        return True
+
+    # Generic dense figure OCR dump: many short lines, checkbox/form symbols,
+    # and lots of repeated labels.
+    checkbox_like = text.count("□") + text.count("▶") + text.count("...")
+    if len(lines) >= 35 and checkbox_like >= 5:
+        return True
+
+    return False
+
+
 def render_block(block: dict[str, Any], chunk_name: str) -> str:
+    """Render a normalized block as natural reading HTML.
+
+    Block type remains internal metadata. The right pane should not repeatedly
+    show labels such as body/list/table; it should render semantic HTML.
+    """
     if is_tiny_empty_figure(block):
         return ""
 
@@ -466,64 +1242,138 @@ def render_block(block: dict[str, Any], chunk_name: str) -> str:
     image = chunk_asset_path(chunk_name, block.get("image"))
     has_mermaid = contains_mermaid_fence(text)
 
-    # Do not show tiny decorative icons as large study images.
+    # Tiny decorative icons should not appear in the study text flow.
     if image and is_tiny_visual_block(block):
         return ""
 
-    # Mermaid source is implementation detail, not learner-facing content.
-    if has_mermaid and image:
-        text = ""
-    elif has_mermaid and not image:
-        return '<section class="study-block"><div class="placeholder">Diagram is available in the source view.</div></section>'
+    # Mermaid source is implementation detail. Source visual remains on the left.
+    if has_mermaid:
+        return ""
+
+    if looks_like_ocr_math_garbage(text):
+        return ""
 
     if block_type == "title" and text:
         level = int(block.get("level") or 2)
         tag = "h2" if level <= 2 else "h3" if level == 3 else "h4"
-        return f'<section class="study-block"><{tag}>{html.escape(text)}</{tag}></section>'
+        return f"<{tag}>{html.escape(text)}</{tag}>"
 
     if block_type == "list" and text:
-        items = "".join(
-            f"<li>{escape_with_breaks(item.strip())}</li>"
-            for item in text.splitlines()
-            if item.strip()
-        )
-        return f'<section class="study-block"><ul>{items}</ul></section>' if items else ""
+        items = split_natural_list_items(text)
+        lis = "".join(f"<li>{escape_with_breaks(item.strip())}</li>" for item in items if item.strip())
+        return f"<ul>{lis}</ul>" if lis else ""
 
     if block_type == "side_note" and text:
-        return f'<section class="study-block note"><p>{escape_with_breaks(text)}</p></section>'
+        return f'<aside class="side-note"><p>{escape_with_breaks(text)}</p></aside>'
 
-    if block_type in {"table", "table_or_figure", "chart", "figure"}:
-        parts: list[str] = ['<section class="study-block">']
+    if block_type in {"table", "table_or_figure", "chart"}:
+        rows_html = render_table_rows_natural(block.get("rows"))
+        if rows_html:
+            return rows_html
+
         if text:
-            parts.append(f'<p>{escape_with_breaks(text)}</p>')
-        if image:
-            parts.append(render_media(image, f"{block_type} image"))
-        elif not text:
-            parts.append('<div class="placeholder">Reference figure/table omitted from text flow.</div>')
-        parts.append("</section>")
-        return "".join(parts)
+            return f"<pre>{html.escape(text)}</pre>"
+
+        return ""
+
+    if block_type == "figure":
+        # Empty figures are noise in the right pane. Source pane covers visuals.
+        if not text:
+            return ""
+
+        # Long OCR dumps from forms/figures should be studied from the source pane.
+        if looks_like_figure_ocr_dump(text):
+            return ""
+
+        return f"<figure><figcaption>{escape_with_breaks(text)}</figcaption></figure>"
 
     if image and not text:
-        return f'<section class="study-block">{render_media(image, f"{block_type} image")}</section>'
+        return ""
 
     if text:
-        return f'<section class="study-block"><p>{escape_with_breaks(text)}</p></section>'
+        if looks_like_journal_or_formula(text):
+            return f"<pre>{html.escape(text)}</pre>"
+        return f"<p>{escape_with_breaks(text)}</p>"
 
     return ""
 
 
+
+def block_copy_text(block: dict[str, Any]) -> str:
+    """Build plain text copied from one normalized block.
+
+    This uses the block boundary preserved from normalized_pages/content_list_v2.
+    It does not use visible labels such as body/list/table.
+    """
+    block_type = str(block.get("type") or "")
+    text = clean_text(block.get("text"))
+
+    if block_type in {"table", "table_or_figure", "chart"}:
+        rows = block.get("rows")
+        if isinstance(rows, list) and rows:
+            lines = []
+            for row in rows:
+                if isinstance(row, list):
+                    cells = [clean_text(cell) for cell in row]
+                    if any(cells):
+                        lines.append("\t".join(cells))
+            if lines:
+                return "\n".join(lines)
+
+    if block_type == "list" and text:
+        items = split_natural_list_items(text)
+        return "\n".join(item.strip() for item in items if item.strip())
+
+    return text
+
+
+def render_copy_block(rendered_html: str, copy_text: str, block_index: int, block_type: str) -> str:
+    if not rendered_html:
+        return ""
+
+    copy_text = clean_text(copy_text)
+    if not copy_text:
+        return rendered_html
+
+    return (
+        f'<div class="copy-block" data-block-index="{block_index}" '
+        f'data-block-type="{html.escape(block_type)}" '
+        f'data-copy-text="{html.escape(copy_text, quote=True)}">'
+        '<button class="copy-block-button" type="button" data-copy-block title="Copy this block" aria-label="Copy this block">⧉</button>'
+        f'{rendered_html}'
+        '</div>'
+    )
+
+
 def render_text_pane(page: dict[str, Any], chunk_name: str, quality: str) -> str:
     parts: list[str] = []
+    block_index = 0
 
     for block in page.get("blocks", []):
         rendered = render_block(block, chunk_name)
         if rendered:
-            parts.append(rendered)
+            parts.append(
+                render_copy_block(
+                    rendered,
+                    block_copy_text(block),
+                    block_index,
+                    str(block.get("type") or "block"),
+                )
+            )
+            block_index += 1
 
     for block in page.get("side_notes", []):
         rendered = render_block(block, chunk_name)
         if rendered:
-            parts.append(rendered)
+            parts.append(
+                render_copy_block(
+                    rendered,
+                    block_copy_text(block),
+                    block_index,
+                    str(block.get("type") or "side_note"),
+                )
+            )
+            block_index += 1
 
     if quality == "BLANK" and not parts:
         parts.append(
@@ -660,7 +1510,10 @@ def build_html(title: str, pages: list[dict[str, Any]]) -> str:
         <button class="control button ghost active" data-view-mode="both" type="button">Both</button>
         <button class="control button ghost" data-view-mode="source" type="button">Source Only</button>
         <button class="control button ghost" data-view-mode="text" type="button">Text Only</button>
-        <a class="button primary" href="index.html">Study Home</a>
+        <a class="button primary study-home-icon" href="./" aria-label="Study home" title="Study home"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="M3.5 11.2 12 4l8.5 7.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M5.8 10.2V20h4.5v-5.5h3.4V20h4.5v-9.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg></a>
       </div>
     </div>
   </header>
