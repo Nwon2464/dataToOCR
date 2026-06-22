@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from build_text_study_review_index import classify_page_quality, is_tiny_empty_figure
+from text_study_quality_rules import classify_page_quality, is_tiny_empty_figure
 import re
 
 
@@ -1510,7 +1510,7 @@ def build_html(title: str, pages: list[dict[str, Any]]) -> str:
         <button class="control button ghost active" data-view-mode="both" type="button">Both</button>
         <button class="control button ghost" data-view-mode="source" type="button">Source Only</button>
         <button class="control button ghost" data-view-mode="text" type="button">Text Only</button>
-        <a class="button primary study-home-icon" href="./" aria-label="Study home" title="Study home"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <a class="button primary study-home-icon" href="./index.html" aria-label="Study home" title="Study home"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <path d="M3.5 11.2 12 4l8.5 7.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M5.8 10.2V20h4.5v-5.5h3.4V20h4.5v-9.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 </svg></a>

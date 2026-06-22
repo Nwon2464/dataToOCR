@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 
@@ -14,20 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from scripts.split_pdf_chunks import DEFAULT_CHUNK_SIZE, derive_book_id  # noqa: E402
 
 
-TOC_JSON = PROJECT_ROOT / "data" / "processed" / "toc_pdf.json"
-GOODNOTES_ICON_MANIFEST = PROJECT_ROOT / "assets" / "goodnotes_icons" / "candidates_manifest.json"
 
-
-def goodnotes_document_title(book_id: str) -> str:
-    return book_id.replace("_", " ").replace("-", " ").strip()
-
-
-def raw_goodnotes_pdf_path(book_id: str) -> Path:
-    return PROJECT_ROOT / "exports" / "goodnotes" / "raw" / f"{book_id}_goodnotes_no_header.pdf"
-
-
-def final_goodnotes_pdf_path(book_id: str) -> Path:
-    return PROJECT_ROOT / "exports" / "goodnotes" / "final" / f"{book_id}_goodnotes_no_header_bookmarked.pdf"
 
 
 
@@ -37,10 +26,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE, help="Pages per chunk. Default: 10.")
     parser.add_argument("--chunks-dir", type=Path, default=Path("data/chunks"), help="Chunk output directory.")
     parser.add_argument("--skip-split", action="store_true", help="Use existing chunk PDFs instead of splitting.")
-    parser.add_argument("--skip-api", action="store_true", help="Skip MinerU API and only build render outputs.")
-    parser.add_argument("--no-preview", action="store_true", help="Skip preview HTML generation.")
-    parser.add_argument("--pretty", action="store_true", help="Write pretty render_all.json.")
-    parser.add_argument("--skip-check", action="store_true", help="Skip render preview checks.")
+    parser.add_argument("--skip-api", action="store_true", help="Skip MinerU API and only build Text Study outputs.")
+    parser.add_argument("--text-study-root", type=Path, default=Path("exports/text_study"), help="Text Study web app root.")
+    parser.add_argument("--title", default=None, help="Text Study book title. Defaults to derived book id.")
     return parser.parse_args()
 
 
@@ -177,35 +165,50 @@ def run_api_for_chunks(chunk_paths: list[Path]) -> None:
         )
 
 
-def build_chunk_render(no_preview: bool) -> None:
-    command = [sys.executable, "scripts/prepare_mineru_render.py", "--all"]
-    if not no_preview:
-        command.append("--preview")
-    run_command("build chunk render outputs", command)
+def text_study_document_title(book_id: str) -> str:
+    return book_id.replace("_", " ").replace("-", " ").strip().title()
 
 
-def build_render_all(pretty: bool) -> None:
-    command = [sys.executable, "scripts/build_render_all.py"]
-    if pretty:
-        command.append("--pretty")
-    run_command("build combined render_all.json", command)
+def text_study_book_root(text_study_root: Path, book_id: str) -> Path:
+    return text_study_root / "books" / book_id
 
 
-def check_render_previews(skip_check: bool, no_preview: bool) -> None:
-    if skip_check:
-        log("[warn] skip check requested")
-        return
-    if no_preview:
-        log("[warn] preview generation disabled; skip check_render_preview.py --all")
-        return
-    run_command("check render previews", [sys.executable, "scripts/check_render_preview.py", "--all"])
+def fix_reader_home_link(reader_path: Path) -> None:
+    if not reader_path.is_file():
+        print(f"[error] reader not found: {rel_path(reader_path)}", file=sys.stderr)
+        raise SystemExit(1)
+
+    text = reader_path.read_text(encoding="utf-8")
+    replacements = {
+        'href="./index.html"': 'href="../../index.html"',
+        'href="index.html"': 'href="../../index.html"',
+        "href='./index.html'": "href='../../index.html'",
+        "href='index.html'": "href='../../index.html'",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    reader_path.write_text(text, encoding="utf-8")
 
 
-def check_render_images(skip_check: bool) -> None:
-    if skip_check:
-        log("[warn] skip check requested")
-        return
-    run_command("check render images", [sys.executable, "scripts/check_render_images.py"])
+def count_reader_pages(reader_path: Path) -> int:
+    if not reader_path.is_file():
+        return 0
+    return reader_path.read_text(encoding="utf-8").count('<section class="page"')
+
+
+def write_book_registry(book_root: Path, book_id: str, title: str, reader_path: Path) -> Path:
+    book_root.mkdir(parents=True, exist_ok=True)
+    registry_path = book_root / "book.json"
+    data = {
+        "book_id": book_id,
+        "title": title,
+        "reader_href": f"./books/{book_id}/reader.html",
+        "pages": count_reader_pages(reader_path),
+        "status": "ready",
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    registry_path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return registry_path
 
 
 def main() -> int:
@@ -213,9 +216,9 @@ def main() -> int:
     pdf_path = resolve_pdf(args.pdf)
     chunks_dir = resolve_project_path(args.chunks_dir)
     book_id = derive_book_id(pdf_path)
-    document_title = goodnotes_document_title(book_id)
-    raw_pdf_path = raw_goodnotes_pdf_path(book_id)
-    final_pdf_path = final_goodnotes_pdf_path(book_id)
+    text_study_root = resolve_project_path(args.text_study_root)
+    book_root = text_study_book_root(text_study_root, book_id)
+    title = args.title or text_study_document_title(book_id)
     
     if args.chunk_size < 1:
         print("[error] --chunk-size must be 1 or greater", file=sys.stderr)
@@ -241,87 +244,68 @@ def main() -> int:
         run_api_for_chunks(chunk_paths)
     log("[complete] run MinerU API for chunks")
 
-    log("[3/10] Build chunk render.json and preview")
-    build_chunk_render(args.no_preview)
-    log("[complete] build chunk render.json and preview")
-
-    log("[4/10] Build processed HTML and apply icon rules")
+    log("[3/7] Export text study outputs")
     run_logged_stage(
-        "build processed HTML manifest",
-        [sys.executable, "scripts/build_html_manifest.py"],
-    )
-    run_logged_stage(
-        "generate GoodNotes icon candidates",
+        "export text study outputs",
         [
             sys.executable,
-            "scripts/apply_goodnotes_icon_rules.py",
-            "refresh-candidates",
+            "scripts/export_text_study_batch.py",
+            "--mineru-root",
+            "data/mineru_api_output",
+            "--output-root",
+            str(book_root),
+            "--force",
         ],
     )
-    log_output_file("GoodNotes icon candidates manifest", GOODNOTES_ICON_MANIFEST)
+
+    log("[4/7] Render source previews")
     run_logged_stage(
-        "classify GoodNotes icon candidates",
+        "render source previews",
         [
             sys.executable,
-            "scripts/apply_goodnotes_icon_rules.py",
-            "mark-small-icons",
+            "scripts/render_source_previews.py",
+            "--text-study-root",
+            str(book_root),
+            "--mineru-root",
+            "data/mineru_api_output",
+            "--scale",
+            "1.0",
         ],
     )
+
+    log("[5/7] Build continuous reader")
     run_logged_stage(
-        "apply GoodNotes icon rules",
-        [sys.executable, "scripts/apply_goodnotes_icon_rules.py", "apply"],
-    )
-
-    log("[5/10] Build combined render_all.json")
-    build_render_all(args.pretty)
-    log("[complete] build combined render_all.json")
-
-    log("[6/10] Check render previews")
-    check_render_previews(args.skip_check, args.no_preview)
-    log("[complete] check render previews")
-
-    log("[7/10] Check render images")
-    check_render_images(args.skip_check)
-    log("[complete] check render images")
-
-    log("[8/10] Build web app")
-    run_logged_stage("npm run build", ["npm", "run", "build"])
-
-    log("[9/10] Export GoodNotes PDF and toc_pdf.json")
-    log(f"[export document title] {document_title}")
-    log(f"[export raw PDF] {rel_path(raw_pdf_path)}")
-
-    run_command(
-        "npm run export:goodnotes-pdf",
-        ["npm", "run", "export:goodnotes-pdf"],
-        env={
-            "GOODNOTES_DOCUMENT_TITLE": document_title,
-            "GOODNOTES_OUTPUT_PATH": rel_path(raw_pdf_path),
-            "GOODNOTES_TOC_OUTPUT_PATH": rel_path(TOC_JSON),
-        },
-    )
-
-    log_output_file("raw PDF", raw_pdf_path)
-    log_output_file("toc PDF JSON", TOC_JSON)
-
-    
-    log("[10/10] Add PDF bookmarks")
-    run_logged_stage(
-        "add PDF bookmarks",
+        "build continuous reader",
         [
             sys.executable,
-            "scripts/add_pdf_bookmarks.py",
-            "--input",
-            str(raw_pdf_path),
-            "--toc",
-            str(TOC_JSON),
-            "--output",
-            str(final_pdf_path),
+            "scripts/build_text_study_reader.py",
+            "--text-study-root",
+            str(book_root),
+            "--title",
+            title,
         ],
     )
-    log_output_file("final PDF", final_pdf_path)
+    reader_path = book_root / "reader.html"
+    fix_reader_home_link(reader_path)
+    log_output_file("Text Study reader", reader_path)
 
+    log("[6/7] Write book registry")
+    registry_path = write_book_registry(book_root, book_id, title, reader_path)
+    log_output_file("book registry", registry_path)
 
+    log("[7/7] Rebuild text study home")
+    run_logged_stage(
+        "build text study home",
+        [
+            sys.executable,
+            "scripts/build_text_study_home.py",
+            "--text-study-root",
+            str(text_study_root),
+            "--title",
+            "USCPA Text Study Home",
+        ],
+    )
+    log_output_file("Text Study home", text_study_root / "index.html")
 
     log("[done] full pipeline completed")
     return 0
