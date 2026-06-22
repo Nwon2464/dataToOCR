@@ -441,7 +441,28 @@ def copy_image_for_item(item: dict[str, Any], mineru_dir: Path, assets_dir: Path
     "images" instead of a real file path. In that case, skip the image
     instead of crashing the whole export.
     """
-    image_value = item.get("image") or item.get("img_path") or item.get("image_path")
+
+
+   
+
+    image_value = item.get("image") or item.get("img_path") or item.get("image_path") or item.get("content", {}).get("image_source", {}).get("path")
+    # image_value = item.get("image") or item.get("img_path") or item.get("image_path")
+
+ ##debug
+    if item.get("bbox") == [134, 803, 411, 924] or "Partnershipへの拠出取引" in str(item.get("text", "")):
+        print("[debug target item]", item)
+        print("[debug copy_image_for_item] item type:", item.get("type"))
+        print("[debug copy_image_for_item] keys:", sorted(item.keys()))
+        print("[debug copy_image_for_item] image fields:", {
+            "img_path": item.get("img_path"),
+            "image_path": item.get("image_path"),
+            "src": item.get("src"),
+            "path": item.get("path"),
+        })
+        print("[debug copy_image_for_item] text:", str(item.get("text", ""))[:80])
+        print("[debug copy_image_for_item] bbox:", item.get("bbox"))
+        print("image value: ",image_value)
+    ##
 
     if not image_value or not isinstance(image_value, str):
         return None

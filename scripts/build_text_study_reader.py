@@ -1277,15 +1277,19 @@ def render_block(block: dict[str, Any], chunk_name: str) -> str:
         return ""
 
     if block_type == "figure":
-        # Empty figures are noise in the right pane. Source pane covers visuals.
-        if not text:
+        # Empty figures without images are noise in the right pane.
+        if not text and not image:
             return ""
 
-        # Long OCR dumps from forms/figures should be studied from the source pane.
-        if looks_like_figure_ocr_dump(text):
+        # Long OCR dumps from forms/figures should be studied from the source pane,
+        # but keep the actual figure image if available.
+        if looks_like_figure_ocr_dump(text) and not image:
             return ""
 
-        return f"<figure><figcaption>{escape_with_breaks(text)}</figcaption></figure>"
+        img_html = render_media(image, text or "Figure") if image else ""
+        caption_html = f"<figcaption>{escape_with_breaks(text)}</figcaption>" if text else ""
+
+        return f"<figure>{img_html}{caption_html}</figure>"
 
     if image and not text:
         return ""
