@@ -24,7 +24,7 @@ def render_source_previews(
 
     chunk_dirs = sorted(
         p
-        for p in text_study_root.glob("uscpa_reg2_1_p*")
+        for p in text_study_root.glob("*_p*")
         if p.is_dir() and re.search(r"_p\d{3}_\d{3}$", p.name)
     )
 

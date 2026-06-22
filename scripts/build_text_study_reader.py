@@ -1443,7 +1443,7 @@ def render_page(page: dict[str, Any], chunk_name: str) -> str:
 def collect_pages(root: Path) -> list[dict[str, Any]]:
     pages: list[dict[str, Any]] = []
 
-    for normalized_path in sorted(root.glob("uscpa_reg2_1_p*/normalized_pages.json")):
+    for normalized_path in sorted(root.glob("*_p*/normalized_pages.json")):
         chunk_name = normalized_path.parent.name
         data = read_json(normalized_path)
         for page in data.get("pages", []):
